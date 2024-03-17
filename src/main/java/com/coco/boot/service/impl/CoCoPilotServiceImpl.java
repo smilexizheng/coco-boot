@@ -224,7 +224,7 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
             return ResponseEntity.ok("{\"message\": \"No keys\"}");
         }
 
-        String ghu = getGhu(ghuAliveKey, 0);
+        String ghu = getGhu(ghuAliveKey);
         if (StringUtil.isBlank(ghu)) {
             return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body("{\"message\": \"Rate limit,The server is under great pressure\"}");
         }
@@ -263,25 +263,27 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
 
     }
 
+
     /**
      * 限流随机现有GHU
+     * 递归改成循环调用。防止栈溢出
      */
-    public String getGhu(RSet<String> ghuAliveKey, int retryCount) {
-        if (retryCount > 10) {
-            return null;
-        }
-        String ghu = ghuAliveKey.random();
-        RRateLimiter rateLimiter = this.redissonClient.getRateLimiter(GHU_RATE_LIMITER + ghu);
-        if (!rateLimiter.isExists()) {
+    public String getGhu(RSet<String> ghuAliveKey) {
+        RRateLimiter rateLimiter;
+        int retryCount = 0;
+        while (retryCount <= 10) {
+            String ghu = ghuAliveKey.random();
+            rateLimiter = this.redissonClient.getRateLimiter(GHU_RATE_LIMITER + ghu);
             RateIntervalUnit timeUnit = RateIntervalUnit.SECONDS;
             rateLimiter.trySetRate(RateType.OVERALL, coCoConfig.getFrequencyDegree(), coCoConfig.getFrequencyTime(), timeUnit);
             rateLimiter.expireAsync(Duration.ofMillis(timeUnit.toMillis(coCoConfig.getFrequencyDegree())));
+            if (rateLimiter.tryAcquire()) {
+                return ghu;
+            } else {
+                log.info("{} 被限流使用", ghu);
+                retryCount++;
+            }
         }
-        if (rateLimiter.tryAcquire()) {
-            return ghu;
-        } else {
-            log.info("{} 被限流使用", ghu);
-            return getGhu(ghuAliveKey, ++retryCount);
-        }
+        return null;
     }
 }
