@@ -7,6 +7,7 @@ import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONObject;
 import com.coco.boot.common.R;
 import com.coco.boot.config.CoCoConfig;
+import com.coco.boot.entity.ServiceStatus;
 import com.coco.boot.service.CoCoPilotService;
 import jodd.util.StringUtil;
 import lombok.AllArgsConstructor;
@@ -97,7 +98,7 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
         // 这里可以使用 Redis、Memcached 或者其他存储方式
         // 存活时间设置为5分钟
         RBucket<Integer> state = redissonClient.getBucket(TOKEN_STATE + stateKey);
-        state.set(1,Duration.ofMinutes(coCoConfig.getExpirationTtl()));
+        state.set(1, Duration.ofMinutes(coCoConfig.getExpirationTtl()));
         String authUrl = coCoConfig.getAuthorizationEndpoint() + "?client_id=CLIENT_ID&state=" + stateKey + "&redirect_uri=" + encodedRedirectUri + "&response_type=code&scope=read";
 
         return new ModelAndView(new RedirectView(authUrl, true, false));
@@ -212,6 +213,17 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
         }
     }
 
+    @Override
+    public ServiceStatus getServiceStatus() {
+        ServiceStatus status = new ServiceStatus();
+        int aliveCount = redissonClient.getSet(GHU_ALIVE_KEY, StringCodec.INSTANCE).size();
+        int noAliveCount = redissonClient.getSet(GHU_NO_ALIVE_KEY, StringCodec.INSTANCE).size();
+        status.setGhuAliveCount(aliveCount);
+        status.setGhuNoAliveCount(noAliveCount);
+        status.setGhuCount(aliveCount + noAliveCount);
+        return status;
+    }
+
 
     /**
      * 核心代理 方法
@@ -229,7 +241,6 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
             return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body("{\"message\": \"Rate limit,The server is under great pressure\"}");
         }
         log.info("{}可用令牌数量，当前选择{}", ghuAliveKey.size(), ghu);
-
 
 
         //TODO 放置到下面接口成功之后   ghu 用量统计

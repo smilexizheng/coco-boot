@@ -1,6 +1,7 @@
 package com.coco.boot.controller;
 
 import com.coco.boot.common.R;
+import com.coco.boot.entity.ServiceStatus;
 import com.coco.boot.service.CoCoPilotService;
 import lombok.AllArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -60,6 +61,15 @@ public class CoCoPilotController {
             e.printStackTrace();
             return new ResponseEntity<>("Internal Server Error", HttpStatus.INTERNAL_SERVER_ERROR);
         }
+    }
+
+
+    /**
+     * 服务状态查询
+     */
+    @GetMapping("/service-status")
+    public R<ServiceStatus> serviceStatus() {
+        return R.success(coCoPilotService.getServiceStatus());
     }
 
 
