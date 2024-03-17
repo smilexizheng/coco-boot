@@ -15,10 +15,10 @@
     <description>coco project for Spring Boot</description>
     <properties>
         <lombok.version>1.18.28</lombok.version>
-        <okhttp.version>4.11.0</okhttp.version>
+        <okhttp.version>4.12.0</okhttp.version>
 		<fastjson.version>2.0.46</fastjson.version>
         <redisson.version>3.26.0</redisson.version>
-        <hutool.version>5.8.25</hutool.version>
+        <hutool.version>5.8.26</hutool.version>
         <java.version>17</java.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>

@@ -15,7 +15,7 @@ public interface CoCoPilotService {
     /**
      * 上传令牌
      */
-    R<String> updaloadGhu(String data);
+    R<String> uploadGhu(String data);
 
     /**
      * 获取token

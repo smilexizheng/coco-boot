@@ -23,10 +23,6 @@ import org.springframework.web.servlet.ModelAndView;
 import org.springframework.web.servlet.view.RedirectView;
 
 import java.time.Duration;
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
-import java.util.Map;
-import java.util.concurrent.TimeUnit;
 
 import static com.coco.boot.constant.SysConstant.*;
 import static org.springframework.http.HttpStatus.FORBIDDEN;
@@ -57,7 +53,7 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
     }
 
     @Override
-    public R<String> updaloadGhu(String data) {
+    public R<String> uploadGhu(String data) {
         if (!StringUtils.hasLength(data)) {
             return R.fail();
         }
@@ -89,7 +85,7 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
 
 
         String msg = sb.toString();
-        return R.success(StringUtils.hasLength(msg) ? "不可数据" + msg : "操作完成");
+        return R.success(StringUtils.hasLength(msg) ? "不可用数据" + msg : "操作完成");
     }
 
 
@@ -131,20 +127,15 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
         requestBody.add("redirect_uri", coCoConfig.getRedirectUri());
 
         // 发送请求并解析响应
-        ResponseEntity<Map> response = rest.postForEntity(coCoConfig.getTokenEndpoint(), new HttpEntity<>(requestBody, headers), Map.class);
+        ResponseEntity<JSONObject> response = rest.postForEntity(coCoConfig.getTokenEndpoint(), new HttpEntity<>(requestBody, headers), JSONObject.class);
 
-
-        Map<String, Object> tokenData = response.getBody();
-        String accessToken = (String) tokenData.get("access_token");
+        JSONObject tokenData = response.getBody();
+        assert tokenData != null;
+        String accessToken =  tokenData.getString("access_token");
         if (StringUtil.isBlank(accessToken)) {
             return new ResponseEntity<>("Error fetching token", HttpStatus.INTERNAL_SERVER_ERROR);
         }
 
-        String expires_in = (String) tokenData.get("expires_in");
-        // 定义日期时间格式
-        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss");
-        Duration between = Duration.between(LocalDateTime.now(), LocalDateTime.parse(expires_in, formatter));
-        System.out.println("token有效期：" + between);
 
         // 使用 access_token 获取用户信息
         HttpHeaders userInfoHeaders = new HttpHeaders();
@@ -154,31 +145,22 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
         assert userInfo != null;
         String userId = userInfo.getString("id");
 
-        RBucket<String> users = redissonClient.getBucket(LINUX_DO_USER_ID + userId);
+
         String userInfoJsonString = JSON.toJSONString(userInfo);
         // 检测用户信息         0级用户直接ban
         int trustLevel = userInfo.getIntValue("trust_level");
         boolean active = userInfo.getBooleanValue("active");
         if (!active || trustLevel < 1) {
             log.warn("{} trust_level is 0 or  is not active ", userId);
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body("Your trust_level is 0 or  is not active ");
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("Your trust_level is 0 or  is not active ");
         }
+        RBucket<String> users = redissonClient.getBucket(LINUX_DO_USER_ID + userId);
         users.set(userInfoJsonString);
-        // linux do  token
-        RBucket<String> access_tokens = redissonClient.getBucket(LINUX_DO_ACCESS_TOKEN + userId);
-        access_tokens.set(accessToken);
-        access_tokens.expire(between);
-        RBucket<String> refresh_tokens = redissonClient.getBucket(LINUX_DO_Refresh_TOKEN + userId);
-        refresh_tokens.set((String) tokenData.get("refresh_token"));
-        //refresh_token 增加5分钟
-        refresh_tokens.expire(between.plusMinutes(5));
-
         //虚拟本系统用户信息- 通过此获取到linux userId ，继而可以获取 linux的tokens
         String token = IdUtil.simpleUUID();
         RBucket<String> cocoAuth = redissonClient.getBucket(SYS_USER_ID + token);
         cocoAuth.set(userInfoJsonString);
-        // 开始限流信息设置
-        setUserRateLimiter(userId, trustLevel);
+        bucket.expireAsync(Duration.ofHours(coCoConfig.getUserTokenExpire()));
         return new ResponseEntity<>("{\"message\": \"Token Get Success\", \"data\": \"" + token + "\"}", HttpStatus.OK);
     }
 
@@ -186,7 +168,7 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
         RRateLimiter rateLimiter = this.redissonClient.getRateLimiter(USER_RATE_LIMITER + userId);
         RateIntervalUnit timeUnit = RateIntervalUnit.SECONDS;
         rateLimiter.trySetRate(RateType.OVERALL, ((long) coCoConfig.getUserFrequencyDegree() * trustLevel), coCoConfig.getUserRateTime(), timeUnit);
-        rateLimiter.expireAsync(Duration.ofMillis(timeUnit.toMillis(coCoConfig.getFrequencyDegree())));
+        rateLimiter.expire(Duration.ofMillis(timeUnit.toMillis(coCoConfig.getFrequencyDegree())));
     }
 
     @Override
@@ -200,12 +182,13 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
             if (!bucket.isExists()) {
                 return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("Token does not exist");
             } else {
+                bucket.expireAsync(Duration.ofHours(coCoConfig.getUserTokenExpire()));
                 JSONObject userInfo = JSON.parseObject(bucket.get());
                 String userId = userInfo.getString("id");
 
 //              根据用户信任级别限流
                 RRateLimiter rateLimiter = this.redissonClient.getRateLimiter(USER_RATE_LIMITER + userId);
-                if (!rateLimiter.isExists()){
+                if (!rateLimiter.isExists()) {
                     setUserRateLimiter(userId, userInfo.getIntValue("trust_level"));
                 }
                 if (rateLimiter.tryAcquire()) {
@@ -225,8 +208,6 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
             }
         }
     }
-
-
 
 
     /**
@@ -284,77 +265,16 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
         }
         String ghu = ghuAliveKey.random();
         RRateLimiter rateLimiter = this.redissonClient.getRateLimiter(GHU_RATE_LIMITER + ghu);
-        RateIntervalUnit timeUnit = RateIntervalUnit.SECONDS;
-        rateLimiter.trySetRate(RateType.OVERALL, coCoConfig.getFrequencyDegree(), coCoConfig.getFrequencyTime(), timeUnit);
-        rateLimiter.expireAsync(Duration.ofMillis(timeUnit.toMillis(coCoConfig.getFrequencyDegree())));
+        if (!rateLimiter.isExists()) {
+            RateIntervalUnit timeUnit = RateIntervalUnit.SECONDS;
+            rateLimiter.trySetRate(RateType.OVERALL, coCoConfig.getFrequencyDegree(), coCoConfig.getFrequencyTime(), timeUnit);
+            rateLimiter.expireAsync(Duration.ofMillis(timeUnit.toMillis(coCoConfig.getFrequencyDegree())));
+        }
         if (rateLimiter.tryAcquire()) {
             return ghu;
         } else {
             log.info("{} 被限流使用", ghu);
             return getGhu(ghuAliveKey, ++retryCount);
         }
-    }
-
-
-    /**
-     * 通过linux refresh_token 获取用户token
-     */
-    private boolean refreshToken(String userId, String token) {
-        if (StringUtil.isBlank(token)) {
-            return false;
-        }
-
-        // 构造请求的 body
-        MultiValueMap<String, String> body = new LinkedMultiValueMap<>();
-        body.add("grant_type", "refresh_token");
-        body.add("refresh_token", token.substring(token.indexOf(',') + 1));
-        body.add("client_id", coCoConfig.getClientId());
-        body.add("client_secret", coCoConfig.getClientSecret());
-
-        try {
-            // 发送 POST 请求
-            HttpHeaders headers = new HttpHeaders();
-            headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
-            ResponseEntity<JSONObject> response = rest.postForEntity(coCoConfig.getTokenEndpoint(), body, JSONObject.class);
-
-
-            if (response.getStatusCode().is2xxSuccessful()) {
-                // 解析响应体
-                JSONObject json = response.getBody();
-                assert json != null;
-                String accessToken = json.getString("access_token");
-                String refreshToken = json.getString("refresh_token");
-
-
-//                TODO 过期时间 转换 二选一
-                // 日期时间格式转换
-                String expiresIn = json.getString("expires_in");
-                DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss");
-                LocalDateTime expirTime = LocalDateTime.parse(expiresIn, formatter);
-// 时间戳转换
-//                long timestamp  =  json.getLong("expires_in");
-//                Instant instant = Instant.ofEpochMilli(timestamp);
-//                expirTime = LocalDateTime.ofInstant(instant, ZoneId.systemDefault());
-
-                Duration between = Duration.between(LocalDateTime.now(), expirTime);
-                System.out.println("token有效期：" + between);
-
-                RBucket<Object> at_b = redissonClient.getBucket(LINUX_DO_ACCESS_TOKEN + userId);
-                RBucket<Object> rt_b = redissonClient.getBucket(LINUX_DO_Refresh_TOKEN + userId);
-                at_b.set(accessToken);
-                at_b.expire(between);
-                rt_b.set(refreshToken);
-                //refresh_token 增加5分钟
-                rt_b.expire(between.plusMinutes(5));
-                return true;
-            }
-        } catch (Exception e) {
-            log.error("刷新L站Token", e);
-            return false;
-        }
-
-        return false;
-
-
     }
 }

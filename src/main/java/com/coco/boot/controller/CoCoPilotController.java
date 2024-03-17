@@ -26,7 +26,7 @@ public class CoCoPilotController {
      */
     @PostMapping("upload")
     public R<String> uploadGhu(@RequestBody String data) {
-        return coCoPilotService.updaloadGhu(data);
+        return coCoPilotService.uploadGhu(data);
     }
 
 
