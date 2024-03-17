@@ -1,0 +1,53 @@
+server:
+  port: 8088
+spring:
+  application:
+    name: @artifactId@
+  profiles:
+    active: dev
+  jackson:
+    date-format: yyyy-MM-dd HH:mm:ss
+    time-zone: Asia/Shanghai
+  #国际化资源文件
+  messages:
+    basename: i18n/message,i18n/user_message
+  web:
+    resources:
+      static-locations: classpath:static/
+
+
+
+
+#okHttpClient配置
+ok:
+  http:
+    #最大空闲连接数
+    max-idle-connections: 500
+    #保活持续时间 分钟
+    keep-alive-duration: 5
+    #以下单位 秒
+    connect-timeout: 10
+    read-timeout: 10
+    write-timeout: 10
+
+#coco配置
+coco:
+  #分钟
+  expirationTtl: 5
+  #重定向地址
+  redirectUri: http://localhost:8088/coco/v1/oauth2/callback
+  clientId: sdjfksjklfjsdfjsdjfl
+  clientSecret: sdfsdfsdfsdfsdfsdf
+  #  L站
+  authorizationEndpoint:
+  tokenEndpoint:
+  userEndpoint:
+  #ghu 频率秒  1秒8次
+  frequencyTime: 1
+  #ghu频率数
+  frequencyDegree: 8
+  #用户基础频率  5秒1次
+  userRateTime: 5
+  #用户基础频率数
+  userFrequencyDegree: 1
+
