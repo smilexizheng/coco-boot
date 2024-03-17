@@ -21,8 +21,12 @@ public interface SysConstant {
     String SYS_USER_ID = "sys:user:";
     String LINUX_DO_USER_ID = "linuxdo:user:";
 
+
     String LINUX_DO_ACCESS_TOKEN="linuxdo:token:access-token:";
     String LINUX_DO_Refresh_TOKEN="linuxdo:token:refresh-token:";
+
+    String USING_USER = "using:user:";
+    String USING_GHU = "using:ghu:";
 
 
 }

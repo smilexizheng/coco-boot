@@ -97,8 +97,7 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
         // 这里可以使用 Redis、Memcached 或者其他存储方式
         // 存活时间设置为5分钟
         RBucket<Integer> state = redissonClient.getBucket(TOKEN_STATE + stateKey);
-        state.set(1);
-        state.expire(Duration.ofMinutes(5));
+        state.set(1,Duration.ofMinutes(coCoConfig.getExpirationTtl()));
         String authUrl = coCoConfig.getAuthorizationEndpoint() + "?client_id=CLIENT_ID&state=" + stateKey + "&redirect_uri=" + encodedRedirectUri + "&response_type=code&scope=read";
 
         return new ModelAndView(new RedirectView(authUrl, true, false));
@@ -131,7 +130,7 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
 
         JSONObject tokenData = response.getBody();
         assert tokenData != null;
-        String accessToken =  tokenData.getString("access_token");
+        String accessToken = tokenData.getString("access_token");
         if (StringUtil.isBlank(accessToken)) {
             return new ResponseEntity<>("Error fetching token", HttpStatus.INTERNAL_SERVER_ERROR);
         }
@@ -159,8 +158,7 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
         //虚拟本系统用户信息- 通过此获取到linux userId ，继而可以获取 linux的tokens
         String token = IdUtil.simpleUUID();
         RBucket<String> cocoAuth = redissonClient.getBucket(SYS_USER_ID + token);
-        cocoAuth.set(userInfoJsonString);
-        bucket.expireAsync(Duration.ofHours(coCoConfig.getUserTokenExpire()));
+        cocoAuth.set(userInfoJsonString, Duration.ofHours(coCoConfig.getUserTokenExpire()));
         return new ResponseEntity<>("{\"message\": \"Token Get Success\", \"data\": \"" + token + "\"}", HttpStatus.OK);
     }
 
@@ -194,6 +192,11 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
                 if (rateLimiter.tryAcquire()) {
                     // 调用 handleProxy 方法并获取响应
                     ResponseEntity<String> response = handleProxy(requestBody);
+
+                    // 用户访问计数
+                    RAtomicLong atomicLong = this.redissonClient.getAtomicLong(USING_USER + userId);
+                    atomicLong.incrementAndGet();
+
 //                HttpHeaders newHeaders = new HttpHeaders(response.getHeaders());
 //                newHeaders.set("Access-Control-Allow-Origin", "*");
 //                newHeaders.set("Access-Control-Allow-Methods", "OPTIONS,POST,GET");
@@ -228,6 +231,10 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
         log.info("{}可用令牌数量，当前选择{}", ghuAliveKey.size(), ghu);
 
 
+
+        //TODO 放置到下面接口成功之后   ghu 用量统计
+        RAtomicLong atomicLong = this.redissonClient.getAtomicLong(USING_GHU + ghu);
+        atomicLong.incrementAndGet();
 //        HttpHeaders headers = new HttpHeaders();
 //        headers.setContentType(MediaType.APPLICATION_JSON);
 //        headers.set("Authorization", "Bearer " + ghu);

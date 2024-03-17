@@ -32,7 +32,7 @@ ok:
 
 #coco配置
 coco:
-  #分钟
+  # 请求L站 state 过期时间 分钟
   expirationTtl: 5
   #重定向地址
   redirectUri: http://localhost:8088/coco/v1/oauth2/callback
