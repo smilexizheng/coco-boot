@@ -97,7 +97,7 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
         // 这里可以使用 Redis、Memcached 或者其他存储方式
         // 存活时间设置为5分钟
         RBucket<Integer> state = redissonClient.getBucket(TOKEN_STATE + stateKey);
-        state.set(1,Duration.ofMinutes(coCoConfig.getExpirationTtl()));
+        state.set(1, Duration.ofMinutes(coCoConfig.getExpirationTtl()));
         String authUrl = coCoConfig.getAuthorizationEndpoint() + "?client_id=CLIENT_ID&state=" + stateKey + "&redirect_uri=" + encodedRedirectUri + "&response_type=code&scope=read";
 
         return new ModelAndView(new RedirectView(authUrl, true, false));
@@ -231,7 +231,6 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
         log.info("{}可用令牌数量，当前选择{}", ghuAliveKey.size(), ghu);
 
 
-
         //TODO 放置到下面接口成功之后   ghu 用量统计
         RAtomicLong atomicLong = this.redissonClient.getAtomicLong(USING_GHU + ghu);
         atomicLong.incrementAndGet();
@@ -274,9 +273,11 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
         while (retryCount <= 10) {
             String ghu = ghuAliveKey.random();
             rateLimiter = this.redissonClient.getRateLimiter(GHU_RATE_LIMITER + ghu);
-            RateIntervalUnit timeUnit = RateIntervalUnit.SECONDS;
-            rateLimiter.trySetRate(RateType.OVERALL, coCoConfig.getFrequencyDegree(), coCoConfig.getFrequencyTime(), timeUnit);
-            rateLimiter.expireAsync(Duration.ofMillis(timeUnit.toMillis(coCoConfig.getFrequencyDegree())));
+            if (!rateLimiter.isExists()) {
+                RateIntervalUnit timeUnit = RateIntervalUnit.SECONDS;
+                rateLimiter.trySetRate(RateType.OVERALL, coCoConfig.getFrequencyDegree(), coCoConfig.getFrequencyTime(), timeUnit);
+                rateLimiter.expireAsync(Duration.ofMillis(timeUnit.toMillis(coCoConfig.getFrequencyDegree())));
+            }
             if (rateLimiter.tryAcquire()) {
                 return ghu;
             } else {
