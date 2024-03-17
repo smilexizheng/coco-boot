@@ -1,6 +1,7 @@
 package com.coco.boot.service.impl;
 
 import cn.hutool.core.codec.Base64;
+import cn.hutool.core.util.IdUtil;
 import cn.hutool.core.util.URLUtil;
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONObject;
@@ -27,7 +28,6 @@ import java.time.format.DateTimeFormatter;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
-import static com.coco.boot.common.Utils.generateUUID;
 import static com.coco.boot.constant.SysConstant.*;
 import static org.springframework.http.HttpStatus.FORBIDDEN;
 
@@ -56,55 +56,13 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
         headersApiGithub.set("Accept-Encoding", "gzip, deflate, br");
     }
 
-
-    @Override
-    public String addTest() {
-//      增加10个 测试的ghu
-        for (int i = 0; i < 10; i++) {
-            updaloadGhu("ghu" + System.currentTimeMillis());
-        }
-        StringBuilder sb = new StringBuilder();
-//      增加直接测试的账号，跳过linux do 方便测试
-        for (int userId = 0; userId < 10; userId++) {
-            String userInfo = "{" +
-                    "    \"id\": " + userId + "," +
-                    "    \"username\": \"neo\"," +
-                    "    \"name\": \"Neo\"," +
-                    "    \"active\": true," +
-                    "    \"trust_level\": " + userId + "," +
-                    "    \"silenced\": false" +
-                    "}";
-            // 虚拟本系统用户信息- 通过此获取到linux userId ，继而可以获取 linux的tokens
-            String token = generateUUID();
-
-            RBucket<String> users = redissonClient.getBucket(LINUX_DO_USER_ID + userId);
-            users.set(token);
-            // linux do  token
-            RBucket<String> access_tokens = redissonClient.getBucket(LINUX_DO_ACCESS_TOKEN + userId);
-            access_tokens.set("accessToken");
-            access_tokens.expire(Duration.ofMinutes(10));
-            RBucket<String> refresh_tokens = redissonClient.getBucket(LINUX_DO_Refresh_TOKEN + userId);
-            refresh_tokens.set("refresh_token");
-            // refresh_token 增加5分钟
-            refresh_tokens.expire(Duration.ofMinutes(12));
-
-
-            RBucket<String> cocoAuth = redissonClient.getBucket(SYS_USER_ID + token);
-            cocoAuth.set(userInfo);
-            sb.append("Bearer ").append(token).append("\n");
-        }
-        return sb.toString();
-
-
-    }
-
     @Override
     public R<String> updaloadGhu(String data) {
         if (!StringUtils.hasLength(data)) {
             return R.fail();
         }
 
-        // 不符合的数据记录
+        //不符合的数据记录
         StringBuilder sb = new StringBuilder();
         // 处理数据换行
         String[] ghuArray = data.split("%0A|\\r?\\n");
@@ -119,7 +77,7 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
 
             headersApiGithub.set("authorization", "token " + ghu);
 
-// 存活校验
+//存活校验
 //            ResponseEntity<String> response = rest.postForEntity("https://api.github.com/copilot_internal/v2/token", new HttpEntity<>(null, headersApiGithub), String.class);
 //            if (response.getStatusCode() == HttpStatus.OK) {
 //                JSONObject result = JSON.parseObject(response.getBody());
@@ -138,7 +96,7 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
     @Override
     public ModelAndView token() {
         String encodedRedirectUri = URLUtil.encode(coCoConfig.getRedirectUri());
-        String stateKey = generateUUID();
+        String stateKey = IdUtil.simpleUUID();
         // 存储 state 值到 KV 中，以便稍后验证
         // 这里可以使用 Redis、Memcached 或者其他存储方式
         // 存活时间设置为5分钟
@@ -212,11 +170,11 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
         access_tokens.expire(between);
         RBucket<String> refresh_tokens = redissonClient.getBucket(LINUX_DO_Refresh_TOKEN + userId);
         refresh_tokens.set((String) tokenData.get("refresh_token"));
-        // refresh_token 增加5分钟
+        //refresh_token 增加5分钟
         refresh_tokens.expire(between.plusMinutes(5));
 
-        // 虚拟本系统用户信息- 通过此获取到linux userId ，继而可以获取 linux的tokens
-        String token = generateUUID();
+        //虚拟本系统用户信息- 通过此获取到linux userId ，继而可以获取 linux的tokens
+        String token = IdUtil.simpleUUID();
         RBucket<String> cocoAuth = redissonClient.getBucket(SYS_USER_ID + token);
         cocoAuth.set(userInfoJsonString);
         // 开始限流信息设置
@@ -269,11 +227,10 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
     }
 
 
+
+
     /**
      * 核心代理 方法
-     *
-     * @param requestBody
-     * @return
      */
     private ResponseEntity<String> handleProxy(Object requestBody) {
         // 实现 handleProxy 方法逻辑
@@ -320,10 +277,6 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
 
     /**
      * 限流随机现有GHU
-     *
-     * @param ghuAliveKey
-     * @param retryCount
-     * @return
      */
     public String getGhu(RSet<String> ghuAliveKey, int retryCount) {
         if (retryCount > 10) {
@@ -345,10 +298,6 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
 
     /**
      * 通过linux refresh_token 获取用户token
-     *
-     * @param userId linux userID
-     * @param token  linux refresh_token
-     * @return
      */
     private boolean refreshToken(String userId, String token) {
         if (StringUtil.isBlank(token)) {
@@ -395,7 +344,7 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
                 at_b.set(accessToken);
                 at_b.expire(between);
                 rt_b.set(refreshToken);
-                // refresh_token 增加5分钟
+                //refresh_token 增加5分钟
                 rt_b.expire(between.plusMinutes(5));
                 return true;
             }
