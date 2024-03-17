@@ -3,7 +3,6 @@ package com.coco.boot.service.impl;
 import cn.hutool.core.codec.Base64;
 import cn.hutool.core.util.URLUtil;
 import com.alibaba.fastjson2.JSON;
-import com.alibaba.fastjson2.JSONArray;
 import com.alibaba.fastjson2.JSONObject;
 import com.coco.boot.common.R;
 import com.coco.boot.config.CoCoConfig;
@@ -26,6 +25,7 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 import static com.coco.boot.common.Utils.generateUUID;
 import static com.coco.boot.constant.SysConstant.*;
@@ -74,7 +74,7 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
                     "    \"trust_level\": " + userId + "," +
                     "    \"silenced\": false" +
                     "}";
-            //虚拟本系统用户信息- 通过此获取到linux userId ，继而可以获取 linux的tokens
+            // 虚拟本系统用户信息- 通过此获取到linux userId ，继而可以获取 linux的tokens
             String token = generateUUID();
 
             RBucket<String> users = redissonClient.getBucket(LINUX_DO_USER_ID + userId);
@@ -85,7 +85,7 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
             access_tokens.expire(Duration.ofMinutes(10));
             RBucket<String> refresh_tokens = redissonClient.getBucket(LINUX_DO_Refresh_TOKEN + userId);
             refresh_tokens.set("refresh_token");
-            //refresh_token 增加5分钟
+            // refresh_token 增加5分钟
             refresh_tokens.expire(Duration.ofMinutes(12));
 
 
@@ -104,7 +104,7 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
             return R.fail();
         }
 
-        //不符合的数据记录
+        // 不符合的数据记录
         StringBuilder sb = new StringBuilder();
         // 处理数据换行
         String[] ghuArray = data.split("%0A|\\r?\\n");
@@ -119,7 +119,7 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
 
             headersApiGithub.set("authorization", "token " + ghu);
 
-//存活校验
+// 存活校验
 //            ResponseEntity<String> response = rest.postForEntity("https://api.github.com/copilot_internal/v2/token", new HttpEntity<>(null, headersApiGithub), String.class);
 //            if (response.getStatusCode() == HttpStatus.OK) {
 //                JSONObject result = JSON.parseObject(response.getBody());
@@ -197,22 +197,38 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
         String userId = userInfo.getString("id");
 
         RBucket<String> users = redissonClient.getBucket(LINUX_DO_USER_ID + userId);
-        users.set(JSON.toJSONString(userInfo));
+        String userInfoJsonString = JSON.toJSONString(userInfo);
+        // 检测用户信息         0级用户直接ban
+        int trustLevel = userInfo.getIntValue("trust_level");
+        boolean active = userInfo.getBooleanValue("active");
+        if (!active || trustLevel < 1) {
+            log.warn("{} trust_level is 0 or  is not active ", userId);
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body("Your trust_level is 0 or  is not active ");
+        }
+        users.set(userInfoJsonString);
         // linux do  token
         RBucket<String> access_tokens = redissonClient.getBucket(LINUX_DO_ACCESS_TOKEN + userId);
         access_tokens.set(accessToken);
         access_tokens.expire(between);
         RBucket<String> refresh_tokens = redissonClient.getBucket(LINUX_DO_Refresh_TOKEN + userId);
         refresh_tokens.set((String) tokenData.get("refresh_token"));
-        //refresh_token 增加5分钟
+        // refresh_token 增加5分钟
         refresh_tokens.expire(between.plusMinutes(5));
 
-        //虚拟本系统用户信息- 通过此获取到linux userId ，继而可以获取 linux的tokens
+        // 虚拟本系统用户信息- 通过此获取到linux userId ，继而可以获取 linux的tokens
         String token = generateUUID();
         RBucket<String> cocoAuth = redissonClient.getBucket(SYS_USER_ID + token);
-        cocoAuth.set(JSON.toJSONString(userInfo));
-
+        cocoAuth.set(userInfoJsonString);
+        // 开始限流信息设置
+        setUserRateLimiter(userId, trustLevel);
         return new ResponseEntity<>("{\"message\": \"Token Get Success\", \"data\": \"" + token + "\"}", HttpStatus.OK);
+    }
+
+    private void setUserRateLimiter(String userId, int trustLevel) {
+        RRateLimiter rateLimiter = this.redissonClient.getRateLimiter(USER_RATE_LIMITER + userId);
+        RateIntervalUnit timeUnit = RateIntervalUnit.SECONDS;
+        rateLimiter.trySetRate(RateType.OVERALL, ((long) coCoConfig.getUserFrequencyDegree() * trustLevel), coCoConfig.getUserRateTime(), timeUnit);
+        rateLimiter.expireAsync(Duration.ofMillis(timeUnit.toMillis(coCoConfig.getFrequencyDegree())));
     }
 
     @Override
@@ -228,32 +244,12 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
             } else {
                 JSONObject userInfo = JSON.parseObject(bucket.get());
                 String userId = userInfo.getString("id");
-                //判断 用户 linux token是否有效
-                RBucket<String> at_b = redissonClient.getBucket(LINUX_DO_ACCESS_TOKEN + userId);
-                RBucket<String> rt_b = redissonClient.getBucket(LINUX_DO_Refresh_TOKEN + userId);
 
-
-                if (!rt_b.isExists()) {
-                    return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("Invalid Token");
-                } else if (!at_b.isExists()) {
-                    String rt = rt_b.get();
-                    boolean rat = refreshToken(userId, rt);
-                    if (!rat) {
-                        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("Invalid Token");
-                    }
-                }
-//                0级用户直接ban
-                int trustLevel = userInfo.getIntValue("trust_level");
-                boolean active = userInfo.getBooleanValue("active");
-                if (!active || trustLevel < 1) {
-                    log.warn("{} trust_level is 0 or  is not active ", userId);
-                    return ResponseEntity.status(HttpStatus.BAD_REQUEST).body("Your trust_level is 0 or  is not active ");
-                }
 //              根据用户信任级别限流
                 RRateLimiter rateLimiter = this.redissonClient.getRateLimiter(USER_RATE_LIMITER + userId);
-                RateIntervalUnit timeUnit = RateIntervalUnit.SECONDS;
-                rateLimiter.trySetRate(RateType.OVERALL, ((long) coCoConfig.getUserFrequencyDegree() * trustLevel), coCoConfig.getUserRateTime(), timeUnit);
-                rateLimiter.expireAsync(Duration.ofMillis(timeUnit.toMillis(coCoConfig.getFrequencyDegree())));
+                if (!rateLimiter.isExists()){
+                    setUserRateLimiter(userId, userInfo.getIntValue("trust_level"));
+                }
                 if (rateLimiter.tryAcquire()) {
                     // 调用 handleProxy 方法并获取响应
                     ResponseEntity<String> response = handleProxy(requestBody);
@@ -263,7 +259,7 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
 //                newHeaders.set("Access-Control-Allow-Headers", "*");
                     return ResponseEntity.status(response.getStatusCode()).body(response.getBody());
                 } else {
-                    log.warn("用户ID:{}，trustLevel：{}，token:{}被限流使用", userId, trustLevel, token);
+                    log.warn("用户ID:{}，trustLevel：{}，token:{}被限流使用", userId, userInfo.getIntValue("trust_level"), token);
                     return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body("Your Rate limit");
                 }
 
@@ -271,8 +267,6 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
             }
         }
     }
-
-
 
 
     /**
@@ -401,7 +395,7 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
                 at_b.set(accessToken);
                 at_b.expire(between);
                 rt_b.set(refreshToken);
-                //refresh_token 增加5分钟
+                // refresh_token 增加5分钟
                 rt_b.expire(between.plusMinutes(5));
                 return true;
             }
