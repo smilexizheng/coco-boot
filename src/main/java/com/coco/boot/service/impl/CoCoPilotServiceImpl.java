@@ -26,7 +26,6 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Map;
-import java.util.concurrent.TimeUnit;
 
 import static com.coco.boot.constant.SysConstant.*;
 import static org.springframework.http.HttpStatus.FORBIDDEN;
@@ -101,8 +100,7 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
         // 这里可以使用 Redis、Memcached 或者其他存储方式
         // 存活时间设置为5分钟
         RBucket<Integer> state = redissonClient.getBucket(TOKEN_STATE + stateKey);
-        state.set(1);
-        state.expire(Duration.ofMinutes(5));
+        state.set(1, Duration.ofMinutes(5));
         String authUrl = coCoConfig.getAuthorizationEndpoint() + "?client_id=CLIENT_ID&state=" + stateKey + "&redirect_uri=" + encodedRedirectUri + "&response_type=code&scope=read";
 
         return new ModelAndView(new RedirectView(authUrl, true, false));
@@ -166,12 +164,10 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
         users.set(userInfoJsonString);
         // linux do  token
         RBucket<String> access_tokens = redissonClient.getBucket(LINUX_DO_ACCESS_TOKEN + userId);
-        access_tokens.set(accessToken);
-        access_tokens.expire(between);
+        access_tokens.set(accessToken, between);
         RBucket<String> refresh_tokens = redissonClient.getBucket(LINUX_DO_Refresh_TOKEN + userId);
-        refresh_tokens.set((String) tokenData.get("refresh_token"));
         //refresh_token 增加5分钟
-        refresh_tokens.expire(between.plusMinutes(5));
+        refresh_tokens.set((String) tokenData.get("refresh_token"), between.plusMinutes(5));
 
         //虚拟本系统用户信息- 通过此获取到linux userId ，继而可以获取 linux的tokens
         String token = IdUtil.simpleUUID();
@@ -341,11 +337,9 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
 
                 RBucket<Object> at_b = redissonClient.getBucket(LINUX_DO_ACCESS_TOKEN + userId);
                 RBucket<Object> rt_b = redissonClient.getBucket(LINUX_DO_Refresh_TOKEN + userId);
-                at_b.set(accessToken);
-                at_b.expire(between);
-                rt_b.set(refreshToken);
+                at_b.set(accessToken, between);
                 //refresh_token 增加5分钟
-                rt_b.expire(between.plusMinutes(5));
+                rt_b.set(refreshToken, between.plusMinutes(5));
                 return true;
             }
         } catch (Exception e) {
