@@ -10,6 +10,6 @@ public class WebConfig implements WebMvcConfigurer {
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
         registry.addInterceptor(new ChatInterceptor())
-                .addPathPatterns("/coco/v1/**"); // 这里可以自定义拦截的路径
+                .addPathPatterns("/v1/**"); // 这里可以自定义拦截的路径
     }
 }

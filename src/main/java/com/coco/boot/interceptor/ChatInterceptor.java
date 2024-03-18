@@ -72,7 +72,7 @@ public class ChatInterceptor implements HandlerInterceptor {
     public void afterCompletion(HttpServletRequest request, HttpServletResponse response, Object handler, Exception ex) throws Exception {
         if (response.getStatus() == HttpServletResponse.SC_OK) {
             // 用户访问计数
-            RAtomicLong atomicLong = this.redissonClient.getAtomicLong(USING_USER + tl.get());
+            RAtomicLong atomicLong = this.redissonClient.getAtomicLong(USING_USER + tl.get().getString("id"));
             atomicLong.incrementAndGet();
         }
         tl.remove();

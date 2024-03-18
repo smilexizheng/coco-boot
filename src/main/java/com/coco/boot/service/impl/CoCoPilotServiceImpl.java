@@ -184,7 +184,7 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
         String userId = userInfo.getString("id");
 
 
-        String userInfoJsonString = JSON.toJSONString(userInfo);
+
         // 检测用户信息         0级用户直接ban
         int trustLevel = userInfo.getIntValue("trust_level");
         boolean active = userInfo.getBooleanValue("active");
@@ -192,6 +192,8 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
             log.warn("{} trust_level is 0 or  is not active ", userId);
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("Your trust_level is 0 or  is not active ");
         }
+
+        String userInfoJsonString = JSON.toJSONString(userInfo);
         RBucket<String> users = redissonClient.getBucket(LINUX_DO_USER_ID + userId);
         users.set(userInfoJsonString);
         //虚拟本系统用户信息- 通过此获取到linux userId ，继而可以获取 linux的tokens
@@ -212,7 +214,7 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
         // 根据用户信任级别限流
         RRateLimiter rateLimiter = this.redissonClient.getRateLimiter(USER_RATE_LIMITER + userId);
         if (!rateLimiter.isExists()) {
-            RateIntervalUnit timeUnit = RateIntervalUnit.SECONDS;
+            RateIntervalUnit timeUnit = RateIntervalUnit.MINUTES;
             rateLimiter.trySetRate(RateType.OVERALL, ((long) coCoConfig.getUserFrequencyDegree() * userInfo.getIntValue("trust_level")), coCoConfig.getUserRateTime(), timeUnit);
             rateLimiter.expire(Duration.ofMillis(timeUnit.toMillis(coCoConfig.getFrequencyDegree())));
         }
@@ -225,7 +227,6 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
             // 用户访问计数
             RAtomicLong atomicLong = this.redissonClient.getAtomicLong(USING_USER + userId);
             atomicLong.incrementAndGet();
-
 
 
 //                HttpHeaders newHeaders = new HttpHeaders(response.getHeaders());
@@ -272,9 +273,6 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
         log.info("{}可用令牌数量，当前选择{}", ghuAliveKey.size(), ghu);
 
 
-        //TODO 放置到下面接口成功之后   ghu 用量统计
-        RAtomicLong atomicLong = this.redissonClient.getAtomicLong(USING_GHU + ghu);
-        atomicLong.incrementAndGet();
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         headers.set("Authorization", "Bearer " + ghu);
@@ -295,7 +293,9 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
             //重写响应
             return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body("{\"message\": \"Rate limit\"}");
         }
-
+        //ghu使用成功次数
+        RAtomicLong atomicLong = this.redissonClient.getAtomicLong(USING_GHU + ghu);
+        atomicLong.incrementAndGet();
         return response;
 
 //        临时全部返回成功
