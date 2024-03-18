@@ -2,6 +2,7 @@ package com.coco.boot.controller;
 
 import com.coco.boot.common.R;
 import com.coco.boot.entity.ServiceStatus;
+import com.coco.boot.pojo.Conversation;
 import com.coco.boot.service.CoCoPilotService;
 import lombok.AllArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -54,7 +55,7 @@ public class CoCoPilotController {
 
 
     @RequestMapping(value = "/v1/**", method = {RequestMethod.GET, RequestMethod.POST})
-    public ResponseEntity<String> chat(@RequestBody Object requestBody, @RequestHeader("Authorization") String auth) {
+    public ResponseEntity<String> chat(@RequestBody Conversation requestBody, @RequestHeader("Authorization") String auth) {
         try {
             return coCoPilotService.chat(requestBody, auth);
         } catch (Exception e) {
