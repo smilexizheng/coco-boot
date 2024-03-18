@@ -45,7 +45,7 @@ public class CoCoPilotController {
     /**
      * 响应 L站 oauth2
      */
-    @GetMapping("/oauth2/callback")
+    @GetMapping("/callback")
     public ResponseEntity<String> callback(@RequestParam String code, @RequestParam String state) {
         try {
             return coCoPilotService.callback(code, state);
