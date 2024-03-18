@@ -1,20 +1,24 @@
 # 使用Maven官方镜像作为构建阶段的基础镜像
 FROM maven:3.8.4-openjdk-17-slim AS build
+RUN mkdir -p /app
 # 将工作目录设置为/app
 WORKDIR /app
 # 复制pom.xml和源码到/app
-COPY pom.xml .
-COPY src ./src
+COPY . /app
 # 使用Maven打包应用
 RUN mvn clean package -DskipTests
 
 # 使用OpenJDK官方镜像作为运行阶段的基础镜像
-FROM openjdk:17-slim
+FROM openjdk:17-alpine
+RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.tuna.tsinghua.edu.cn/g' /etc/apk/repositories
+RUN apk --no-cache update && apk --no-cache add curl ttf-dejavu fontconfig net-tools  busybox-extras && apk --no-cache upgrade
+RUN ln -sf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime && echo "Asia/Shanghai" > /etc/timezone
+RUN mkdir /app/conf -p
 # 将工作目录设置为/app
 WORKDIR /app
 # 从构建阶段复制构建好的jar文件到/app
-COPY --from=build /app/target/*.jar app.jar
-COPY --from=build /app/target/redisson-config.yml ./conf/redisson-config.jar
+COPY --from=build /app/target/*.jar /app/app.jar
+COPY --from=build /app/target/redisson-config.yml /app/conf/redisson-config.jar
 # 定义环境变量，用于配置文件
 ENV COCO_EXPIRATION_TTL=5 \
     COCO_REDIRECT_URI="" \
@@ -29,11 +33,10 @@ ENV COCO_EXPIRATION_TTL=5 \
     COCO_FREQUENCY_DEGREE=8 \
     COCO_USER_RATE_TIME=5 \
     COCO_USER_FREQUENCY_DEGREE=1 \
-    COCO_USER_TOKEN_EXPIRE=1 \
-    SPRING_PROFILES_ACTIVE=docker
+    COCO_USER_TOKEN_EXPIRE=1
 
 # 暴露8181端口
 EXPOSE 8181
 
 # 运行Java应用
-CMD ["java", "-jar", "app.jar"]
+CMD ["java", "-Dspring.config=config/application-docker.yaml", "-jar", "/app/app.jar"]

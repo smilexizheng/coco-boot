@@ -9,14 +9,26 @@ import com.alibaba.fastjson2.JSONObject;
 import com.coco.boot.common.R;
 import com.coco.boot.config.CoCoConfig;
 import com.coco.boot.entity.ServiceStatus;
+import com.coco.boot.interceptor.ChatInterceptor;
 import com.coco.boot.pojo.Conversation;
 import com.coco.boot.service.CoCoPilotService;
 import jodd.util.StringUtil;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.redisson.api.*;
+import org.redisson.api.RAtomicLong;
+import org.redisson.api.RBucket;
+import org.redisson.api.RRateLimiter;
+import org.redisson.api.RSet;
+import org.redisson.api.RateIntervalUnit;
+import org.redisson.api.RateType;
+import org.redisson.api.RedissonClient;
 import org.redisson.client.codec.StringCodec;
-import org.springframework.http.*;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
@@ -30,7 +42,15 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
-import static com.coco.boot.constant.SysConstant.*;
+import static com.coco.boot.constant.SysConstant.GHU_ALIVE_KEY;
+import static com.coco.boot.constant.SysConstant.GHU_NO_ALIVE_KEY;
+import static com.coco.boot.constant.SysConstant.GHU_RATE_LIMITER;
+import static com.coco.boot.constant.SysConstant.LINUX_DO_USER_ID;
+import static com.coco.boot.constant.SysConstant.SYS_USER_ID;
+import static com.coco.boot.constant.SysConstant.TOKEN_STATE;
+import static com.coco.boot.constant.SysConstant.USER_RATE_LIMITER;
+import static com.coco.boot.constant.SysConstant.USING_GHU;
+import static com.coco.boot.constant.SysConstant.USING_USER;
 import static org.springframework.http.HttpStatus.FORBIDDEN;
 
 @AllArgsConstructor
@@ -164,7 +184,7 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
         String userId = userInfo.getString("id");
 
 
-        String userInfoJsonString = JSON.toJSONString(userInfo);
+
         // 检测用户信息         0级用户直接ban
         int trustLevel = userInfo.getIntValue("trust_level");
         boolean active = userInfo.getBooleanValue("active");
@@ -172,6 +192,8 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
             log.warn("{} trust_level is 0 or  is not active ", userId);
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("Your trust_level is 0 or  is not active ");
         }
+
+        String userInfoJsonString = JSON.toJSONString(userInfo);
         RBucket<String> users = redissonClient.getBucket(LINUX_DO_USER_ID + userId);
         users.set(userInfoJsonString);
         //虚拟本系统用户信息- 通过此获取到linux userId ，继而可以获取 linux的tokens
@@ -181,50 +203,43 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
         return new ResponseEntity<>("{\"message\": \"Token Get Success\", \"data\": \"" + token + "\"}", HttpStatus.OK);
     }
 
-    private void setUserRateLimiter(String userId, int trustLevel) {
-        RRateLimiter rateLimiter = this.redissonClient.getRateLimiter(USER_RATE_LIMITER + userId);
-        RateIntervalUnit timeUnit = RateIntervalUnit.SECONDS;
-        rateLimiter.trySetRate(RateType.OVERALL, ((long) coCoConfig.getUserFrequencyDegree() * trustLevel), coCoConfig.getUserRateTime(), timeUnit);
-        rateLimiter.expire(Duration.ofMillis(timeUnit.toMillis(coCoConfig.getFrequencyDegree())));
-    }
 
     @Override
     public ResponseEntity<String> chat(Conversation requestBody, String auth, String path) {
-        if (!auth.startsWith("Bearer ")) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("Invalid Authorization");
-        }
-        String token = auth.substring("Bearer ".length());
-        RBucket<String> bucket = redissonClient.getBucket(SYS_USER_ID + token);
 
-        if (!bucket.isExists()) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("Token does not exist");
-        }
-        bucket.expireAsync(Duration.ofHours(coCoConfig.getUserTokenExpire()));
-        JSONObject userInfo = JSON.parseObject(bucket.get());
+
+        JSONObject userInfo = ChatInterceptor.tl.get();
+
         String userId = userInfo.getString("id");
-
-//              根据用户信任级别限流
+        // 根据用户信任级别限流
         RRateLimiter rateLimiter = this.redissonClient.getRateLimiter(USER_RATE_LIMITER + userId);
         if (!rateLimiter.isExists()) {
-            setUserRateLimiter(userId, userInfo.getIntValue("trust_level"));
-        }
-        if (!rateLimiter.tryAcquire()) {
-            log.warn("用户ID:{}，trustLevel：{}，token:{}被限流使用", userId, userInfo.getIntValue("trust_level"), token);
-            return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body("Your Rate limit");
+            RateIntervalUnit timeUnit = RateIntervalUnit.MINUTES;
+            rateLimiter.trySetRate(RateType.OVERALL, ((long) coCoConfig.getUserFrequencyDegree() * userInfo.getIntValue("trust_level")), coCoConfig.getUserRateTime(), timeUnit);
+            rateLimiter.expire(Duration.ofMillis(timeUnit.toMillis(coCoConfig.getFrequencyDegree())));
         }
 
-        // 调用 handleProxy 方法并获取响应
-        ResponseEntity<String> response = handleProxy(requestBody, path);
+        if (rateLimiter.tryAcquire()) {
+            // 调用 handleProxy 方法并获取响应
 
-        // 用户访问计数
-        RAtomicLong atomicLong = this.redissonClient.getAtomicLong(USING_USER + userId);
-        atomicLong.incrementAndGet();
+            ResponseEntity<String> response = handleProxy(requestBody, path);
+
+            // 用户访问计数
+            RAtomicLong atomicLong = this.redissonClient.getAtomicLong(USING_USER + userId);
+            atomicLong.incrementAndGet();
+
 
 //                HttpHeaders newHeaders = new HttpHeaders(response.getHeaders());
 //                newHeaders.set("Access-Control-Allow-Origin", "*");
 //                newHeaders.set("Access-Control-Allow-Methods", "OPTIONS,POST,GET");
 //                newHeaders.set("Access-Control-Allow-Headers", "*");
-        return ResponseEntity.status(response.getStatusCode()).body(response.getBody());
+
+            return ResponseEntity.status(response.getStatusCode()).body(response.getBody());
+        } else {
+            log.warn("用户ID:{}，trustLevel:{}，token:{}被限流使用", userId, userInfo.getIntValue("trust_level"), auth.substring("Bearer ".length()));
+            return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body("Your Rate limit");
+        }
+
     }
 
     @Override
@@ -244,6 +259,7 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
      */
     private ResponseEntity<String> handleProxy(Object requestBody, String path) {
         // 实现 handleProxy 方法逻辑
+        // 进来后再判断一次，拦截器判断通过，但万一其他线程正好用完了
         RSet<String> ghuAliveKey = redissonClient.getSet(GHU_ALIVE_KEY, StringCodec.INSTANCE);
 
         if (!ghuAliveKey.isExists()) {
@@ -257,15 +273,14 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
         log.info("{}可用令牌数量，当前选择{}", ghuAliveKey.size(), ghu);
 
 
-        //TODO 放置到下面接口成功之后   ghu 用量统计
-        RAtomicLong atomicLong = this.redissonClient.getAtomicLong(USING_GHU + ghu);
-        atomicLong.incrementAndGet();
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         headers.set("Authorization", "Bearer " + ghu);
         StopWatch sw = new StopWatch();
         sw.start("进入代理");
+
         ResponseEntity<String> response = rest.postForEntity(coCoConfig.getBaseProxy() + path, new HttpEntity<>(requestBody, headers), String.class);
+
         sw.stop();
         log.info(sw.prettyPrint(TimeUnit.SECONDS));
         // 429被限制
@@ -278,7 +293,9 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
             //重写响应
             return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body("{\"message\": \"Rate limit\"}");
         }
-
+        //ghu使用成功次数
+        RAtomicLong atomicLong = this.redissonClient.getAtomicLong(USING_GHU + ghu);
+        atomicLong.incrementAndGet();
         return response;
 
 //        临时全部返回成功
