@@ -212,11 +212,11 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
 
         String userId = userInfo.getString("id");
         // 根据用户信任级别限流
-        RRateLimiter rateLimiter = this.redissonClient.getRateLimiter(USER_RATE_LIMITER + userId);
+        RRateLimiter rateLimiter = redissonClient.getRateLimiter(USER_RATE_LIMITER + userId);
         if (!rateLimiter.isExists()) {
             RateIntervalUnit timeUnit = RateIntervalUnit.MINUTES;
             rateLimiter.trySetRate(RateType.OVERALL, ((long) coCoConfig.getUserFrequencyDegree() * userInfo.getIntValue("trust_level")), coCoConfig.getUserRateTime(), timeUnit);
-            rateLimiter.expire(Duration.ofMillis(timeUnit.toMillis(coCoConfig.getFrequencyDegree())));
+            rateLimiter.expireAsync(Duration.ofMinutes(30));
         }
 
         if (rateLimiter.tryAcquire()) {
@@ -282,7 +282,7 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
             return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body("{\"message\": \"Rate limit\"}");
         }
         //ghu使用成功次数
-        RAtomicLong atomicLong = this.redissonClient.getAtomicLong(USING_GHU + ghu);
+        RAtomicLong atomicLong = redissonClient.getAtomicLong(USING_GHU + ghu);
         atomicLong.incrementAndGet();
         return response;
 
@@ -301,11 +301,11 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
         int retryCount = 0;
         while (retryCount <= 10) {
             String ghu = ghuAliveKey.random();
-            rateLimiter = this.redissonClient.getRateLimiter(GHU_RATE_LIMITER + ghu);
+            rateLimiter = redissonClient.getRateLimiter(GHU_RATE_LIMITER + ghu);
             if (!rateLimiter.isExists()) {
                 RateIntervalUnit timeUnit = RateIntervalUnit.SECONDS;
                 rateLimiter.trySetRate(RateType.OVERALL, coCoConfig.getFrequencyDegree(), coCoConfig.getFrequencyTime(), timeUnit);
-                rateLimiter.expireAsync(Duration.ofMillis(timeUnit.toMillis(coCoConfig.getFrequencyDegree())));
+                rateLimiter.expireAsync(Duration.ofHours(2));
             }
             if (rateLimiter.tryAcquire()) {
                 return ghu;
