@@ -185,11 +185,8 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
 
     @Override
     public ResponseEntity<String> chat(Object requestBody, String auth) {
-        String token = ChatInterceptor.tl.get();
+        JSONObject userInfo = ChatInterceptor.tl.get();
 
-        RBucket<String> bucket = redissonClient.getBucket(SYS_USER_ID + token);
-        bucket.expireAsync(Duration.ofHours(coCoConfig.getUserTokenExpire()));
-        JSONObject userInfo = JSON.parseObject(bucket.get());
         String userId = userInfo.getString("id");
         // 根据用户信任级别限流
         RRateLimiter rateLimiter = this.redissonClient.getRateLimiter(USER_RATE_LIMITER + userId);
@@ -210,7 +207,7 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
 //                newHeaders.set("Access-Control-Allow-Headers", "*");
             return ResponseEntity.status(response.getStatusCode()).body(response.getBody());
         } else {
-            log.warn("用户ID:{}，trustLevel:{}，token:{}被限流使用", userId, userInfo.getIntValue("trust_level"), token);
+            log.warn("用户ID:{}，trustLevel:{}，token:{}被限流使用", userId, userInfo.getIntValue("trust_level"), auth.substring("Bearer ".length()));
             return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body("Your Rate limit");
         }
     }

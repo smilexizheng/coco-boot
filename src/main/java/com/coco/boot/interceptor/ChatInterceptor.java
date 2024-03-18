@@ -28,7 +28,7 @@ import static com.coco.boot.constant.SysConstant.USING_USER;
  */
 @Component
 public class ChatInterceptor implements HandlerInterceptor {
-    public static ThreadLocal<String> tl = new ThreadLocal<>();
+    public static ThreadLocal<JSONObject> tl = new ThreadLocal<>();
     @Autowired
     private RedissonClient redissonClient;
     @Autowired
@@ -61,7 +61,7 @@ public class ChatInterceptor implements HandlerInterceptor {
             }
             bucket.expireAsync(Duration.ofHours(coCoConfig.getUserTokenExpire()));
             JSONObject userInfo = JSON.parseObject(bucket.get());
-            tl.set(userInfo.getString("id"));
+            tl.set(userInfo);
             return true;
         }
         setResponse(response, HttpServletResponse.SC_UNAUTHORIZED, "Invalid Authorization");
