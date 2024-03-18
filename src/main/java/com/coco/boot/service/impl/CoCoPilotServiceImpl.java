@@ -16,21 +16,11 @@ import com.coco.boot.service.CoCoPilotService;
 import jodd.util.StringUtil;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.redisson.api.RAtomicLong;
-import org.redisson.api.RBucket;
-import org.redisson.api.RRateLimiter;
-import org.redisson.api.RSet;
-import org.redisson.api.RateIntervalUnit;
-import org.redisson.api.RateType;
-import org.redisson.api.RedissonClient;
+import org.redisson.api.*;
 import org.redisson.client.codec.StringCodec;
-import org.springframework.http.HttpEntity;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpMethod;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.MediaType;
-import org.springframework.http.ResponseEntity;
+import org.springframework.http.*;
 import org.springframework.stereotype.Service;
+import org.springframework.util.DigestUtils;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 import org.springframework.util.StringUtils;
@@ -44,14 +34,7 @@ import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
 import static com.coco.boot.constant.RiskContrConstant.*;
-import static com.coco.boot.constant.SysConstant.GHU_ALIVE_KEY;
-import static com.coco.boot.constant.SysConstant.GHU_NO_ALIVE_KEY;
-import static com.coco.boot.constant.SysConstant.GHU_RATE_LIMITER;
-import static com.coco.boot.constant.SysConstant.LINUX_DO_USER_ID;
-import static com.coco.boot.constant.SysConstant.SYS_USER_ID;
-import static com.coco.boot.constant.SysConstant.TOKEN_STATE;
-import static com.coco.boot.constant.SysConstant.USER_RATE_LIMITER;
-import static com.coco.boot.constant.SysConstant.USING_GHU;
+import static com.coco.boot.constant.SysConstant.*;
 import static org.springframework.http.HttpStatus.FORBIDDEN;
 
 @AllArgsConstructor
@@ -232,49 +215,39 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
             RateIntervalUnit timeUnit = RateIntervalUnit.MINUTES;
             rateLimiter.trySetRate(RateType.OVERALL, ((long) coCoConfig.getUserFrequencyDegree() * trustLevel), coCoConfig.getUserRateTime(), timeUnit);
             rateLimiter.expire(Duration.ofMillis(timeUnit.toMillis(coCoConfig.getFrequencyDegree())));
-        } else {
-
-            RAtomicLong limitNum = redissonClient.getAtomicLong(RC_USER_Limit_NUM + userId);
-            long l = limitNum.incrementAndGet();
-            if (l > rcConfig.getTokenInvalidNum()) {
-                redissonClient.getBucket(SYS_USER_ID + auth).deleteAsync();
-            }else if(l>rcConfig.getRejectTimeNum()){
-                redissonClient.getBucket(RC_TEMPORARY_BAN + userId).set(true,Duration.ofHours(rcConfig.getRejectTime()));
-            }else if(l>rcConfig.getBanNum()){
-                redissonClient.getBucket(RC_BAN + userId).set(true);
-            }
-
-
-
         }
 
         if (rateLimiter.tryAcquire()) {
             // 调用 handleProxy 方法并获取响应
 
-            ResponseEntity<String> response = handleProxy(requestBody, path, userId);
+//            ResponseEntity<String> response = handleProxy(requestBody, path, userId);
+            ResponseEntity<String> response = ResponseEntity.status(HttpStatus.OK).body("{\"message\": \"OK\"}");
 
             if (response.getStatusCode().is2xxSuccessful()) {
+                String tokenKey = DigestUtils.md5DigestAsHex((auth + userId).getBytes());
                 //成功访问
-                long tokenSuccess = redissonClient.getAtomicLong(RC_TOKEN_SUCCESS_REQ + userId).incrementAndGet();
-                if (tokenSuccess > (rcConfig.getTokenMaxReq() * trustLevel)) {
+                long tokenSuccess = redissonClient.getAtomicLong(RC_TOKEN_SUCCESS_REQ + tokenKey).incrementAndGet();
+                if (tokenSuccess > ((long) rcConfig.getTokenMaxReq() * trustLevel)) {
                     redissonClient.getBucket(SYS_USER_ID + auth).deleteAsync();
                 }
                 long userSuccess = redissonClient.getAtomicLong(RC_USER_SUCCESS_REQ + userId).incrementAndGet();
-                if (userSuccess > (rcConfig.getUserMaxReq() * trustLevel)) {
-                    redissonClient.getBucket(RC_TEMPORARY_BAN + userId).set(true,Duration.ofHours(rcConfig.getUserMaxTime()));
+                if (userSuccess > ((long) rcConfig.getUserMaxReq() * trustLevel)) {
+                    redissonClient.getBucket(RC_TEMPORARY_BAN + userId).set(true, Duration.ofHours(rcConfig.getUserMaxTime()));
                 }
-
 
             }
 
-
-//                HttpHeaders newHeaders = new HttpHeaders(response.getHeaders());
-//                newHeaders.set("Access-Control-Allow-Origin", "*");
-//                newHeaders.set("Access-Control-Allow-Methods", "OPTIONS,POST,GET");
-//                newHeaders.set("Access-Control-Allow-Headers", "*");
-
             return ResponseEntity.status(response.getStatusCode()).body(response.getBody());
         } else {
+            RAtomicLong limitNum = redissonClient.getAtomicLong(RC_USER_Limit_NUM + userId);
+            long l = limitNum.incrementAndGet();
+            if (l > rcConfig.getTokenInvalidNum()) {
+                redissonClient.getBucket(SYS_USER_ID + auth).deleteAsync();
+            } else if (l > rcConfig.getRejectTimeNum()) {
+                redissonClient.getBucket(RC_TEMPORARY_BAN + userId).set(true, Duration.ofHours(rcConfig.getRejectTime()));
+            } else if (l > rcConfig.getBanNum()) {
+                redissonClient.getBucket(RC_BAN + userId).set(true);
+            }
             log.warn("用户ID:{}，trustLevel:{}，token:{}被限流使用", userId, userInfo.getIntValue("trust_level"), auth);
             return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body("Your Rate limit");
         }
