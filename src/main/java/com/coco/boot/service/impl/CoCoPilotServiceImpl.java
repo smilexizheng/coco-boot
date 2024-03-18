@@ -174,43 +174,39 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
     public ResponseEntity<String> chat(Object requestBody, String auth) {
         if (!auth.startsWith("Bearer ")) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("Invalid Authorization");
-        } else {
-            String token = auth.substring("Bearer ".length());
-            RBucket<String> bucket = redissonClient.getBucket(SYS_USER_ID + token);
-
-            if (!bucket.isExists()) {
-                return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("Token does not exist");
-            } else {
-                bucket.expireAsync(Duration.ofHours(coCoConfig.getUserTokenExpire()));
-                JSONObject userInfo = JSON.parseObject(bucket.get());
-                String userId = userInfo.getString("id");
-
-//              根据用户信任级别限流
-                RRateLimiter rateLimiter = this.redissonClient.getRateLimiter(USER_RATE_LIMITER + userId);
-                if (!rateLimiter.isExists()) {
-                    setUserRateLimiter(userId, userInfo.getIntValue("trust_level"));
-                }
-                if (rateLimiter.tryAcquire()) {
-                    // 调用 handleProxy 方法并获取响应
-                    ResponseEntity<String> response = handleProxy(requestBody);
-
-                    // 用户访问计数
-                    RAtomicLong atomicLong = this.redissonClient.getAtomicLong(USING_USER + userId);
-                    atomicLong.incrementAndGet();
-
-//                HttpHeaders newHeaders = new HttpHeaders(response.getHeaders());
-//                newHeaders.set("Access-Control-Allow-Origin", "*");
-//                newHeaders.set("Access-Control-Allow-Methods", "OPTIONS,POST,GET");
-//                newHeaders.set("Access-Control-Allow-Headers", "*");
-                    return ResponseEntity.status(response.getStatusCode()).body(response.getBody());
-                } else {
-                    log.warn("用户ID:{}，trustLevel：{}，token:{}被限流使用", userId, userInfo.getIntValue("trust_level"), token);
-                    return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body("Your Rate limit");
-                }
-
-
-            }
         }
+        String token = auth.substring("Bearer ".length());
+        RBucket<String> bucket = redissonClient.getBucket(SYS_USER_ID + token);
+
+        if (!bucket.isExists()) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("Token does not exist");
+        }
+        bucket.expireAsync(Duration.ofHours(coCoConfig.getUserTokenExpire()));
+        JSONObject userInfo = JSON.parseObject(bucket.get());
+        String userId = userInfo.getString("id");
+
+        // 根据用户信任级别限流
+        RRateLimiter rateLimiter = this.redissonClient.getRateLimiter(USER_RATE_LIMITER + userId);
+        if (!rateLimiter.isExists()) {
+            setUserRateLimiter(userId, userInfo.getIntValue("trust_level"));
+        }
+        if (rateLimiter.tryAcquire() == Boolean.FALSE) {
+            log.warn("用户ID:{}，trustLevel：{}，token:{}被限流使用", userId, userInfo.getIntValue("trust_level"), token);
+            return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body("Your Rate limit");
+        }
+
+        // 调用 handleProxy 方法并获取响应
+        ResponseEntity<String> response = handleProxy(requestBody);
+
+        // 用户访问计数
+        RAtomicLong atomicLong = this.redissonClient.getAtomicLong(USING_USER + userId);
+        atomicLong.incrementAndGet();
+
+//        HttpHeaders newHeaders = new HttpHeaders(response.getHeaders());
+//        newHeaders.set("Access-Control-Allow-Origin", "*");
+//        newHeaders.set("Access-Control-Allow-Methods", "OPTIONS,POST,GET");
+//        newHeaders.set("Access-Control-Allow-Headers", "*");
+        return ResponseEntity.status(response.getStatusCode()).body(response.getBody());
     }
 
     @Override
