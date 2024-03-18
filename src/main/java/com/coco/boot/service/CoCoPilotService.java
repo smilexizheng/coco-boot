@@ -32,7 +32,7 @@ public interface CoCoPilotService {
     /**
      * chat 接口
      */
-    ResponseEntity<String> chat(@RequestBody Conversation requestBody, @RequestHeader("Authorization") String auth);
+    ResponseEntity<String> chat(@RequestBody Conversation requestBody, @RequestHeader("Authorization") String auth,String path);
 
     /**
      * 服务状态

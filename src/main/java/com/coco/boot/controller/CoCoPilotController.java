@@ -15,7 +15,7 @@ import org.springframework.web.servlet.ModelAndView;
  */
 @AllArgsConstructor
 @RestController
-@RequestMapping("/coco")
+@RequestMapping("/")
 public class CoCoPilotController {
 
 
@@ -54,10 +54,10 @@ public class CoCoPilotController {
     }
 
 
-    @RequestMapping(value = "/v1/**", method = {RequestMethod.GET, RequestMethod.POST})
-    public ResponseEntity<String> chat(@RequestBody Conversation requestBody, @RequestHeader("Authorization") String auth) {
+    @RequestMapping(value = "/v1/{var1}/{var2}", method = {RequestMethod.GET, RequestMethod.POST})
+    public ResponseEntity<String> chat(@PathVariable("var1") String var1, @PathVariable("var2") String var2, @RequestBody Conversation requestBody, @RequestHeader("Authorization") String auth) {
         try {
-            return coCoPilotService.chat(requestBody, auth);
+            return coCoPilotService.chat(requestBody, auth, var1 + "/" + var2);
         } catch (Exception e) {
             e.printStackTrace();
             return new ResponseEntity<>("Internal Server Error", HttpStatus.INTERNAL_SERVER_ERROR);
