@@ -1,6 +1,7 @@
 package com.coco.boot.interceptor;
 
 import cn.hutool.core.util.StrUtil;
+import cn.hutool.extra.spring.SpringUtil;
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONObject;
 import com.coco.boot.config.CoCoConfig;
@@ -29,10 +30,14 @@ import static com.coco.boot.constant.SysConstant.USING_USER;
 @Component
 public class ChatInterceptor implements HandlerInterceptor {
     public static ThreadLocal<JSONObject> tl = new ThreadLocal<>();
-    @Autowired
-    private RedissonClient redissonClient;
-    @Autowired
-    private CoCoConfig coCoConfig;
+    private final RedissonClient redissonClient;
+    private final CoCoConfig coCoConfig;
+
+    public ChatInterceptor() {
+        this.redissonClient= SpringUtil.getBean(RedissonClient.class);
+        this.coCoConfig= SpringUtil.getBean(CoCoConfig.class);
+    }
+
 
     /**
      * 拦截请求，检查请求头中的Authorization字段是否为有效的token，并判断token是否可用
