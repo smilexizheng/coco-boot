@@ -45,14 +45,29 @@ coco:
   #代理节点
   baseApi:
   baseProxy:
-  #ghu 频率秒  1秒8次
-  frequencyTime: 1
-  #ghu频率数
-  frequencyDegree: 8
-  #用户基础频率  5秒1次
+  #用户基础*频率 分钟  5分钟15次
   userRateTime: 5
   #用户基础频率数
-  userFrequencyDegree: 1
+  userFrequencyDegree: 15
   #用户token 有效期无请求接口 小时
   userTokenExpire: 1
+
+
+#以下为风控参数
+risk-contr:
+  # 一个账号 一天能获取多少次Token
+  getTokenNum: 10
+  #单token 成功请求的最大数量 * 倍率 token失效
+  tokenMaxReq: 500
+  #每天用户最大请求数量 *倍率  限制 10小时 不可登陆
+  userMaxReq: 2000
+  userMaxTime: 10
+  #超出用户最大访问速率 次数限制
+  #10次 当前token失效
+  tokenInvalidNum: 10
+  #30次 限制 2小时 不可登陆
+  rejectTimeNum: 30
+  rejectTime: 2
+  #200次 ban号级别
+  banNum: 200
 

@@ -8,6 +8,7 @@ import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONObject;
 import com.coco.boot.common.R;
 import com.coco.boot.config.CoCoConfig;
+import com.coco.boot.config.RiskContrConfig;
 import com.coco.boot.entity.ServiceStatus;
 import com.coco.boot.interceptor.ChatInterceptor;
 import com.coco.boot.pojo.Conversation;
@@ -42,6 +43,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
+import static com.coco.boot.constant.RiskContrConstant.*;
 import static com.coco.boot.constant.SysConstant.GHU_ALIVE_KEY;
 import static com.coco.boot.constant.SysConstant.GHU_NO_ALIVE_KEY;
 import static com.coco.boot.constant.SysConstant.GHU_RATE_LIMITER;
@@ -50,7 +52,6 @@ import static com.coco.boot.constant.SysConstant.SYS_USER_ID;
 import static com.coco.boot.constant.SysConstant.TOKEN_STATE;
 import static com.coco.boot.constant.SysConstant.USER_RATE_LIMITER;
 import static com.coco.boot.constant.SysConstant.USING_GHU;
-import static com.coco.boot.constant.SysConstant.USING_USER;
 import static org.springframework.http.HttpStatus.FORBIDDEN;
 
 @AllArgsConstructor
@@ -64,6 +65,7 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
     private final RedissonClient redissonClient;
 
     private final CoCoConfig coCoConfig;
+    private final RiskContrConfig rcConfig;
 
 //    private static final HttpHeaders apiHeaders;
 //
@@ -182,7 +184,19 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
         JSONObject userInfo = responseEntity.getBody();
         assert userInfo != null;
         String userId = userInfo.getString("id");
+        //登陆次数
+        RAtomicLong getTokenNum = redissonClient.getAtomicLong(RC_GET_TOKEN_NUM + userId);
+        long l = getTokenNum.incrementAndGet();
+        if (l > rcConfig.getGetTokenNum()) {
+            return new ResponseEntity<>("You Can Try again tomorrow", HttpStatus.UNAUTHORIZED);
+        }
 
+        //检查是否禁止访问
+        RBucket<Boolean> ban = redissonClient.getBucket(RC_BAN + userId);
+        RBucket<Boolean> tempBan = redissonClient.getBucket(RC_TEMPORARY_BAN + userId);
+        if (ban.isExists() || tempBan.isExists()) {
+            return new ResponseEntity<>("You have been banned", HttpStatus.UNAUTHORIZED);
+        }
 
 
         // 检测用户信息         0级用户直接ban
@@ -206,27 +220,52 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
 
     @Override
     public ResponseEntity<String> chat(Conversation requestBody, String auth, String path) {
-
-
         JSONObject userInfo = ChatInterceptor.tl.get();
-
+        auth = auth.substring("Bearer ".length());
         String userId = userInfo.getString("id");
+        int trustLevel = userInfo.getIntValue("trust_level");
+
+
         // 根据用户信任级别限流
         RRateLimiter rateLimiter = this.redissonClient.getRateLimiter(USER_RATE_LIMITER + userId);
         if (!rateLimiter.isExists()) {
             RateIntervalUnit timeUnit = RateIntervalUnit.MINUTES;
-            rateLimiter.trySetRate(RateType.OVERALL, ((long) coCoConfig.getUserFrequencyDegree() * userInfo.getIntValue("trust_level")), coCoConfig.getUserRateTime(), timeUnit);
+            rateLimiter.trySetRate(RateType.OVERALL, ((long) coCoConfig.getUserFrequencyDegree() * trustLevel), coCoConfig.getUserRateTime(), timeUnit);
             rateLimiter.expire(Duration.ofMillis(timeUnit.toMillis(coCoConfig.getFrequencyDegree())));
+        } else {
+
+            RAtomicLong limitNum = redissonClient.getAtomicLong(RC_USER_Limit_NUM + userId);
+            long l = limitNum.incrementAndGet();
+            if (l > rcConfig.getTokenInvalidNum()) {
+                redissonClient.getBucket(SYS_USER_ID + auth).deleteAsync();
+            }else if(l>rcConfig.getRejectTimeNum()){
+                redissonClient.getBucket(RC_TEMPORARY_BAN + userId).set(true,Duration.ofHours(rcConfig.getRejectTime()));
+            }else if(l>rcConfig.getBanNum()){
+                redissonClient.getBucket(RC_BAN + userId).set(true);
+            }
+
+
+
         }
 
         if (rateLimiter.tryAcquire()) {
             // 调用 handleProxy 方法并获取响应
 
-            ResponseEntity<String> response = handleProxy(requestBody, path);
+            ResponseEntity<String> response = handleProxy(requestBody, path, userId);
 
-            // 用户访问计数
-            RAtomicLong atomicLong = this.redissonClient.getAtomicLong(USING_USER + userId);
-            atomicLong.incrementAndGet();
+            if (response.getStatusCode().is2xxSuccessful()) {
+                //成功访问
+                long tokenSuccess = redissonClient.getAtomicLong(RC_TOKEN_SUCCESS_REQ + userId).incrementAndGet();
+                if (tokenSuccess > (rcConfig.getTokenMaxReq() * trustLevel)) {
+                    redissonClient.getBucket(SYS_USER_ID + auth).deleteAsync();
+                }
+                long userSuccess = redissonClient.getAtomicLong(RC_USER_SUCCESS_REQ + userId).incrementAndGet();
+                if (userSuccess > (rcConfig.getUserMaxReq() * trustLevel)) {
+                    redissonClient.getBucket(RC_TEMPORARY_BAN + userId).set(true,Duration.ofHours(rcConfig.getUserMaxTime()));
+                }
+
+
+            }
 
 
 //                HttpHeaders newHeaders = new HttpHeaders(response.getHeaders());
@@ -236,7 +275,7 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
 
             return ResponseEntity.status(response.getStatusCode()).body(response.getBody());
         } else {
-            log.warn("用户ID:{}，trustLevel:{}，token:{}被限流使用", userId, userInfo.getIntValue("trust_level"), auth.substring("Bearer ".length()));
+            log.warn("用户ID:{}，trustLevel:{}，token:{}被限流使用", userId, userInfo.getIntValue("trust_level"), auth);
             return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body("Your Rate limit");
         }
 
@@ -257,7 +296,7 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
     /**
      * 核心代理 方法
      */
-    private ResponseEntity<String> handleProxy(Object requestBody, String path) {
+    private ResponseEntity<String> handleProxy(Object requestBody, String path, String userId) {
         // 实现 handleProxy 方法逻辑
         // 进来后再判断一次，拦截器判断通过，但万一其他线程正好用完了
         RSet<String> ghuAliveKey = redissonClient.getSet(GHU_ALIVE_KEY, StringCodec.INSTANCE);
@@ -294,8 +333,8 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
             return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body("{\"message\": \"Rate limit\"}");
         }
         //ghu使用成功次数
-        RAtomicLong atomicLong = this.redissonClient.getAtomicLong(USING_GHU + ghu);
-        atomicLong.incrementAndGet();
+        redissonClient.getAtomicLong(USING_GHU + ghu).incrementAndGetAsync();
+
         return response;
 
 //        临时全部返回成功
