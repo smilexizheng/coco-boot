@@ -4,7 +4,6 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: coco-boot
     network_mode: "host"
     ports:
       - "8181:8181"
@@ -30,6 +29,8 @@ services:
     environment:
       # 设置时区
       - TZ=Asia/Shanghai
+    volumes: # 配置数据卷
+      - ./redis_data:/data
     ports:
       - "6379:6379"
     command: redis-server --appendonly yes
