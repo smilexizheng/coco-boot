@@ -1,9 +1,11 @@
 version: '3.8'
 services:
-  my-java-app:
+  coco-boot:
     build:
       context: .
       dockerfile: Dockerfile
+    container_name: coco-boot
+    network_mode: "host"
     ports:
       - "8181:8181"
     environment:
@@ -21,5 +23,13 @@ services:
       COCO_USER_RATE_TIME: "5"
       COCO_USER_FREQUENCY_DEGREE: "1"
       COCO_USER_TOKEN_EXPIRE: "1"
-    volumes:
-      - /app/conf:/app/conf
+
+  redis:
+    image: redis
+    container_name: coco-redis
+    environment:
+      # 设置时区
+      - TZ=Asia/Shanghai
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
