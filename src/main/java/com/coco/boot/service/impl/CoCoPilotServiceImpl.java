@@ -99,7 +99,7 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
         // 存活时间设置为5分钟
         RBucket<Integer> state = redissonClient.getBucket(TOKEN_STATE + stateKey);
         state.set(1, Duration.ofMinutes(coCoConfig.getExpirationTtl()));
-        String authUrl = coCoConfig.getAuthorizationEndpoint() + "?client_id=CLIENT_ID&state=" + stateKey + "&redirect_uri=" + encodedRedirectUri + "&response_type=code&scope=read";
+        String authUrl = coCoConfig.getAuthorizationEndpoint() + "?client_id="+coCoConfig.getClientId()+"&state=" + stateKey + "&redirect_uri=" + encodedRedirectUri + "&response_type=code&scope=read";
 
         return new ModelAndView(new RedirectView(authUrl, true, false));
     }
