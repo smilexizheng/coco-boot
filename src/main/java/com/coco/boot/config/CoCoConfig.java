@@ -18,6 +18,8 @@ public class CoCoConfig {
     private String clientId;
     private String clientSecret;
     private String authorizationEndpoint;
+    private String baseProxy;
+    private String baseApi;
     private String tokenEndpoint;
     private String userEndpoint;
     private Integer frequencyTime;

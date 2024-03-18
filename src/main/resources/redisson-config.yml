@@ -5,7 +5,7 @@ singleServerConfig:
   timeout: 3000
   retryAttempts: 3
   retryInterval: 1500
-  password:
+  password: Njgh8888
   subscriptionsPerConnection: 5
   clientName: mainRedis
   address: "redis://127.0.0.1:6379"

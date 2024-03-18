@@ -1,6 +1,7 @@
 package com.coco.boot.service.impl;
 
 import cn.hutool.core.codec.Base64;
+import cn.hutool.core.date.StopWatch;
 import cn.hutool.core.util.IdUtil;
 import cn.hutool.core.util.URLUtil;
 import com.alibaba.fastjson2.JSON;
@@ -9,6 +10,7 @@ import com.coco.boot.common.R;
 import com.coco.boot.config.CoCoConfig;
 import com.coco.boot.entity.ServiceStatus;
 import com.coco.boot.interceptor.ChatInterceptor;
+import com.coco.boot.pojo.Conversation;
 import com.coco.boot.service.CoCoPilotService;
 import jodd.util.StringUtil;
 import lombok.AllArgsConstructor;
@@ -36,6 +38,7 @@ import org.springframework.web.servlet.ModelAndView;
 import org.springframework.web.servlet.view.RedirectView;
 
 import java.time.Duration;
+import java.util.concurrent.TimeUnit;
 
 import static com.coco.boot.constant.SysConstant.GHU_ALIVE_KEY;
 import static com.coco.boot.constant.SysConstant.GHU_NO_ALIVE_KEY;
@@ -56,21 +59,21 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
     private final RestTemplate rest;
 
     private final RedissonClient redissonClient;
+
     private final CoCoConfig coCoConfig;
 
-
-    private static final HttpHeaders headersApiGithub;
-
-    static {
-        headersApiGithub = new HttpHeaders();
-        headersApiGithub.set("Access-Control-Allow-Origin", "*");
-        headersApiGithub.set("Host", "api.github.com");
-        headersApiGithub.set("Editor-Version", "vscode/1.85.2");
-        headersApiGithub.set("Editor-Plugin-Version", "copilot-chat/0.11.1");
-        headersApiGithub.set("User-Agent", "GitHubCopilotChat/0.11.1");
-        headersApiGithub.set("Accept", "*/*");
-        headersApiGithub.set("Accept-Encoding", "gzip, deflate, br");
-    }
+//    private static final HttpHeaders apiHeaders;
+//
+//    static {
+//        apiHeaders = new HttpHeaders();
+//        apiHeaders.set("Access-Control-Allow-Origin", "*");
+//        apiHeaders.set("Host", "api.cocopilot.com");
+//        apiHeaders.set("Editor-Version", "vscode/1.85.2");
+//        apiHeaders.set("Editor-Plugin-Version", "copilot-chat/0.11.1");
+//        apiHeaders.set("User-Agent", "GitHubCopilotChat/0.11.1");
+//        apiHeaders.set("Accept", "*/*");
+//        apiHeaders.set("Accept-Encoding", "gzip, deflate, br");
+//    }
 
     @Override
     public R<String> uploadGhu(String data) {
@@ -83,29 +86,42 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
         // 处理数据换行
         String[] ghuArray = data.split("%0A|\\r?\\n");
         RSet<String> ghus = redissonClient.getSet(GHU_ALIVE_KEY, StringCodec.INSTANCE);
+        RSet<String> noAliveGhus = redissonClient.getSet(GHU_NO_ALIVE_KEY, StringCodec.INSTANCE);
 
         for (String ghu : ghuArray) {
             if (!ghu.startsWith("gh")) {
                 sb.append(ghu);
                 continue;
             }
+
+            if (ghus.contains(ghu)) {
+                log.info("重复添加GHU:{}", ghu);
+                continue;
+            }
             System.out.println(ghu);
+            HttpHeaders httpHeaders = new HttpHeaders();
+            httpHeaders.set("Authorization", "token " + ghu);
+            //存活校验
+            try {
+                HttpEntity<MultiValueMap<String, Object>> requestEntity = new HttpEntity<>(httpHeaders);
 
-            headersApiGithub.set("authorization", "token " + ghu);
+                ResponseEntity<JSONObject> response = rest.exchange(coCoConfig.getBaseApi() + "/copilot_internal/v2/token", HttpMethod.GET, requestEntity, JSONObject.class);
 
-//存活校验
-//            ResponseEntity<String> response = rest.postForEntity("https://api.github.com/copilot_internal/v2/token", new HttpEntity<>(null, headersApiGithub), String.class);
-//            if (response.getStatusCode() == HttpStatus.OK) {
-//                JSONObject result = JSON.parseObject(response.getBody());
-//                String token = result.getString("token");
-            ghus.add(ghu);
-//
-//            }
+                if (response.getStatusCode() == HttpStatus.OK) {
+                    JSONObject result = response.getBody();
+                    String token = result.getString("token");
+                    ghus.add(ghu);//
+                } else {
+                    throw new Exception();
+                }
+            } catch (Exception e) {
+                sb.append(ghu);
+                noAliveGhus.add(ghu);
+                log.warn("upload 存活校验失败", e);
+            }
+
         }
-
-
-        String msg = sb.toString();
-        return R.success(StringUtils.hasLength(msg) ? "不可用数据" + msg : "操作完成");
+        return R.success("操作完成", sb.toString());
     }
 
 
@@ -184,9 +200,31 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
 
 
     @Override
+    public ResponseEntity<String> chat(Conversation requestBody, String auth,String path) {
+        if (!auth.startsWith("Bearer ")) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("Invalid Authorization");
+        } else {
+            String token = auth.substring("Bearer ".length());
+            RBucket<String> bucket = redissonClient.getBucket(SYS_USER_ID + token);
     public ResponseEntity<String> chat(Object requestBody, String auth) {
         JSONObject userInfo = ChatInterceptor.tl.get();
 
+            if (!bucket.isExists()) {
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("Token does not exist");
+            } else {
+                bucket.expireAsync(Duration.ofHours(coCoConfig.getUserTokenExpire()));
+                JSONObject userInfo = JSON.parseObject(bucket.get());
+                String userId = userInfo.getString("id");
+
+//              根据用户信任级别限流
+                RRateLimiter rateLimiter = this.redissonClient.getRateLimiter(USER_RATE_LIMITER + userId);
+                if (!rateLimiter.isExists()) {
+                    setUserRateLimiter(userId, userInfo.getIntValue("trust_level"));
+                }
+                if (rateLimiter.tryAcquire()) {
+                    // 调用 handleProxy 方法并获取响应
+
+                    ResponseEntity<String> response = handleProxy(requestBody,path);
         String userId = userInfo.getString("id");
         // 根据用户信任级别限流
         RRateLimiter rateLimiter = this.redissonClient.getRateLimiter(USER_RATE_LIMITER + userId);
@@ -205,6 +243,12 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
 //                newHeaders.set("Access-Control-Allow-Origin", "*");
 //                newHeaders.set("Access-Control-Allow-Methods", "OPTIONS,POST,GET");
 //                newHeaders.set("Access-Control-Allow-Headers", "*");
+                    return ResponseEntity.status(response.getStatusCode()).body(response.getBody());
+                } else {
+                    log.warn("用户ID:{}，trustLevel：{}，token:{}被限流使用", userId, userInfo.getIntValue("trust_level"), token);
+                    return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body("Your Rate limit");
+                }
+            }
             return ResponseEntity.status(response.getStatusCode()).body(response.getBody());
         } else {
             log.warn("用户ID:{}，trustLevel:{}，token:{}被限流使用", userId, userInfo.getIntValue("trust_level"), auth.substring("Bearer ".length()));
@@ -229,6 +273,8 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
      */
     private ResponseEntity<String> handleProxy(Object requestBody) {
         // 进来后再判断一次，拦截器判断通过，但万一其他线程正好用完了
+    private ResponseEntity<String> handleProxy(Object requestBody,String path) {
+        // 实现 handleProxy 方法逻辑
         RSet<String> ghuAliveKey = redissonClient.getSet(GHU_ALIVE_KEY, StringCodec.INSTANCE);
         if (!ghuAliveKey.isExists()) {
             return ResponseEntity.ok("{\"message\": \"No keys\"}");
@@ -244,31 +290,34 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
         //TODO 放置到下面接口成功之后   ghu 用量统计
         RAtomicLong atomicLong = this.redissonClient.getAtomicLong(USING_GHU + ghu);
         atomicLong.incrementAndGet();
-//        HttpHeaders headers = new HttpHeaders();
-//        headers.setContentType(MediaType.APPLICATION_JSON);
-//        headers.set("Authorization", "Bearer " + ghu);
-//        RestTemplate restTemplate = new RestTemplate();
-//        ResponseEntity<String> response = restTemplate.postForEntity("https://proxy.cocopilot.org/v1/chat/completions", new HttpEntity<>(requestBody, headers), String.class);
-//        // 429被限制
-//        if (response.getStatusCode() == HttpStatus.TOO_MANY_REQUESTS) {
-//            String retryAfter = response.getHeaders().getFirst("x-ratelimit-user-retry-after");
-//            // 保留原有判断
-//            if (retryAfter != null) {
-//
-//            }
-////            异步移除，并添加到不可用key
-//            ghuAliveKey.removeAsync(ghu);
-//            RSet<String> ghuNoAliveKey = redissonClient.getSet(GHU_NO_ALIVE_KEY, StringCodec.INSTANCE);
-//
-//            ghuNoAliveKey.addAsync(ghu);
-//            //重写响应
-//            return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body("{\"message\": \"Rate limit\"}");
-//        }
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.set("Authorization", "Bearer " + ghu);
+        StopWatch sw = new StopWatch();
+        sw.start("进入代理");
+        ResponseEntity<String> response = rest.postForEntity(coCoConfig.getBaseProxy() + "/v1/"+path, new HttpEntity<>(requestBody, headers), String.class);
+        sw.stop();
+        log.info(sw.prettyPrint(TimeUnit.SECONDS));
+        // 429被限制
+        if (response.getStatusCode() == HttpStatus.TOO_MANY_REQUESTS) {
+            String retryAfter = response.getHeaders().getFirst("x-ratelimit-user-retry-after");
+            // 保留原有判断
+            if (retryAfter != null) {
 
-//        return response;
+            }
+//            异步移除，并添加到不可用key
+            ghuAliveKey.removeAsync(ghu);
+            RSet<String> ghuNoAliveKey = redissonClient.getSet(GHU_NO_ALIVE_KEY, StringCodec.INSTANCE);
+
+            ghuNoAliveKey.addAsync(ghu);
+            //重写响应
+            return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body("{\"message\": \"Rate limit\"}");
+        }
+
+        return response;
 
 //        临时全部返回成功
-        return ResponseEntity.status(HttpStatus.OK).body("{\"message\": \"OK\"}");
+//        return ResponseEntity.status(HttpStatus.OK).body("{\"message\": \"OK\"}");
 
     }
 

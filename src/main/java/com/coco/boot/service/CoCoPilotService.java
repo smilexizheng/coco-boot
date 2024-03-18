@@ -3,6 +3,7 @@ package com.coco.boot.service;
 
 import com.coco.boot.common.R;
 import com.coco.boot.entity.ServiceStatus;
+import com.coco.boot.pojo.Conversation;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
@@ -31,7 +32,7 @@ public interface CoCoPilotService {
     /**
      * chat 接口
      */
-    ResponseEntity<String> chat(@RequestBody Object requestBody, @RequestHeader("Authorization") String auth);
+    ResponseEntity<String> chat(@RequestBody Conversation requestBody, @RequestHeader("Authorization") String auth,String path);
 
     /**
      * 服务状态
