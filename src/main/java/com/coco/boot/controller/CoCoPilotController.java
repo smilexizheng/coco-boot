@@ -4,6 +4,7 @@ import com.coco.boot.common.R;
 import com.coco.boot.entity.ServiceStatus;
 import com.coco.boot.pojo.Conversation;
 import com.coco.boot.service.CoCoPilotService;
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.AllArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -54,10 +55,13 @@ public class CoCoPilotController {
     }
 
 
-    @RequestMapping(value = "/v1/{var1}/{var2}", method = {RequestMethod.GET, RequestMethod.POST})
-    public ResponseEntity<String> chat(@PathVariable("var1") String var1, @PathVariable("var2") String var2, @RequestBody Conversation requestBody, @RequestHeader("Authorization") String auth) {
+    @RequestMapping(value = "/v1/**", method = {RequestMethod.GET, RequestMethod.POST})
+    public ResponseEntity<String> chat(@RequestBody Conversation requestBody,
+                                       @RequestHeader("Authorization") String auth,
+                                       HttpServletRequest request) {
         try {
-            return coCoPilotService.chat(requestBody, auth, var1 + "/" + var2);
+            System.out.println("request = " + request.getRequestURI());
+            return coCoPilotService.chat(requestBody, auth, request.getRequestURI());
         } catch (Exception e) {
             e.printStackTrace();
             return new ResponseEntity<>("Internal Server Error", HttpStatus.INTERNAL_SERVER_ERROR);
