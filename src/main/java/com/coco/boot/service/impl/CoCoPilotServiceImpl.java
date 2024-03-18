@@ -16,6 +16,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.redisson.api.*;
 import org.redisson.client.codec.StringCodec;
 import org.springframework.http.*;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
@@ -24,6 +25,12 @@ import org.springframework.web.client.RestTemplate;
 import org.springframework.web.servlet.ModelAndView;
 import org.springframework.web.servlet.view.RedirectView;
 
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.time.Duration;
 
 import static com.coco.boot.constant.SysConstant.*;
@@ -33,25 +40,150 @@ import static org.springframework.http.HttpStatus.FORBIDDEN;
 @Service
 @Slf4j
 public class CoCoPilotServiceImpl implements CoCoPilotService {
+    /**
+     * 获取vscode 最新版本URL
+     */
+    private static final String VS_CODE_API_URL = "https://api.github.com/repos/microsoft/vscode/releases/latest";
+    /**
+     * 获取vscode Chat 最新版本URL
+     */
+    private static final String VS_CODE_CHAT_URL = "https://marketplace.visualstudio.com/_apis/public/gallery/extensionquery";
+    /**
+     * vscode_version
+     */
+    private static String vscode_version;
+    /**
+     * copilot_chat_version;
+     */
+    private static String copilot_chat_version;
 
-
-    private final RestTemplate rest;
-
-    private final RedissonClient redissonClient;
-
-    private final CoCoConfig coCoConfig;
-
-    private static final HttpHeaders headersApiGithub;
+    private static HttpHeaders headersApiGithub;
 
     static {
         headersApiGithub = new HttpHeaders();
+        vscode_version = getLatestVSCodeVersion();
+        copilot_chat_version = getLatestChatVersion("GitHub", "copilot-chat");
         headersApiGithub.set("Access-Control-Allow-Origin", "*");
         headersApiGithub.set("Host", "api.github.com");
-        headersApiGithub.set("Editor-Version", "vscode/1.85.2");
-        headersApiGithub.set("Editor-Plugin-Version", "copilot-chat/0.11.1");
-        headersApiGithub.set("User-Agent", "GitHubCopilotChat/0.11.1");
+        headersApiGithub.set("Editor-Version", "vscode/" + vscode_version);
+        headersApiGithub.set("Editor-Plugin-Version", "copilot-chat/" + copilot_chat_version);
+        headersApiGithub.set("User-Agent", "GitHubCopilotChat/" + copilot_chat_version);
         headersApiGithub.set("Accept", "*/*");
         headersApiGithub.set("Accept-Encoding", "gzip, deflate, br");
+    }
+
+    private final RestTemplate rest;
+    private final RedissonClient redissonClient;
+    private final CoCoConfig coCoConfig;
+
+    /**
+     * 每三天定时更新headersApiGithub
+     * Editor-Version
+     * Editor-Plugin-Version
+     * User-Agent
+     */
+    @Scheduled(cron = "0 0 3 1/3 * ?")
+    private static void updateLatestVersion() {
+        try {
+            String latestVersion = getLatestVSCodeVersion();
+            String latestChatVersion = getLatestChatVersion("GitHub", "copilot-chat");
+            if (latestVersion != null && latestChatVersion != null) {
+                vscode_version = latestVersion;
+                copilot_chat_version = latestChatVersion;
+                headersApiGithub.set("Editor-Version", "vscode/" + vscode_version);
+                headersApiGithub.set("Editor-Plugin-Version", "copilot-chat/" + copilot_chat_version);
+                headersApiGithub.set("User-Agent", "GitHubCopilotChat/" + copilot_chat_version);
+                log.info("===================配置更新说明========================");
+                log.info("vscode_version更新为：" + vscode_version);
+                log.info("copilot_chat_version更新为：" + copilot_chat_version);
+                log.info("======================================================");
+            } else {
+                log.error("vscode_version，copilot_chat_version更新失败！");
+            }
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    /**
+     * 获取最新的vscode版本
+     * Editor-Version
+     */
+    public static String getLatestVSCodeVersion() {
+        try {
+            URL url = new URL(VS_CODE_API_URL);
+            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+            conn.setRequestMethod("GET");
+            conn.setRequestProperty("Accept", "application/vnd.github.v3+json");
+            if (conn.getResponseCode() != 200) {
+                throw new RuntimeException("Failed : HTTP error code : " + conn.getResponseCode());
+            }
+            StringBuilder response = new StringBuilder();
+            try (BufferedReader br = new BufferedReader(new InputStreamReader(conn.getInputStream()))) {
+                String output;
+                while ((output = br.readLine()) != null) {
+                    response.append(output);
+                }
+            }
+            conn.disconnect();
+            JSONObject jsonObject = JSON.parseObject(response.toString());
+            return jsonObject.getString("tag_name");
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    /**
+     * 获取最新的github chat版本
+     * Editor-Plugin-Version
+     * User-Agent
+     */
+    public static String getLatestChatVersion(String publisher, String name) {
+        try {
+            HttpURLConnection conn = (HttpURLConnection) new URL(VS_CODE_CHAT_URL).openConnection();
+            conn.setRequestMethod("POST");
+            conn.setRequestProperty("Content-Type", "application/json");
+            conn.setRequestProperty("Accept", "application/json;api-version=6.1-preview.1");
+            conn.setDoOutput(true);
+            com.alibaba.fastjson.JSONObject jsonRequest = getJsonObject(publisher, name);
+            OutputStream os = conn.getOutputStream();
+            os.write(jsonRequest.toString().getBytes());
+            os.flush();
+            BufferedReader br = new BufferedReader(new InputStreamReader((conn.getInputStream())));
+            StringBuilder response = new StringBuilder();
+            String output;
+            while ((output = br.readLine()) != null) {
+                response.append(output);
+            }
+            conn.disconnect();
+            JSONObject jsonResponse = JSON.parseObject(response.toString());
+            return jsonResponse.getJSONArray("results").getJSONObject(0).getJSONArray("extensions").getJSONObject(0).getJSONArray("versions").getJSONObject(0).getString("version");
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+
+    private static com.alibaba.fastjson.JSONObject getJsonObject(String publisher, String name) {
+        com.alibaba.fastjson.JSONObject jsonRequest = new com.alibaba.fastjson.JSONObject();
+        jsonRequest.put("flags", 870);
+
+        com.alibaba.fastjson.JSONArray filtersArray = new com.alibaba.fastjson.JSONArray();
+
+        com.alibaba.fastjson.JSONObject criteriaObject = new com.alibaba.fastjson.JSONObject();
+        criteriaObject.put("filterType", 7);
+        criteriaObject.put("value", publisher + "." + name);
+
+        com.alibaba.fastjson.JSONArray criteriaArray = new com.alibaba.fastjson.JSONArray();
+        criteriaArray.add(criteriaObject);
+
+        com.alibaba.fastjson.JSONObject filterObject = new com.alibaba.fastjson.JSONObject();
+        filterObject.put("criteria", criteriaArray);
+
+        filtersArray.add(filterObject);
+
+        jsonRequest.put("filters", filtersArray);
+        return jsonRequest;
     }
 
     @Override
@@ -100,7 +232,7 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
         // 存活时间设置为5分钟
         RBucket<Integer> state = redissonClient.getBucket(TOKEN_STATE + stateKey);
         state.set(1, Duration.ofMinutes(coCoConfig.getExpirationTtl()));
-        String authUrl = coCoConfig.getAuthorizationEndpoint() + "?client_id="+coCoConfig.getClientId()+"&state=" + stateKey + "&redirect_uri=" + encodedRedirectUri + "&response_type=code&scope=read";
+        String authUrl = coCoConfig.getAuthorizationEndpoint() + "?client_id=" + coCoConfig.getClientId() + "&state=" + stateKey + "&redirect_uri=" + encodedRedirectUri + "&response_type=code&scope=read";
 
         return new ModelAndView(new RedirectView(authUrl, true, false));
     }
