@@ -48,6 +48,7 @@ import static com.coco.boot.constant.SysConstant.SYS_USER_ID;
 import static com.coco.boot.constant.SysConstant.TOKEN_STATE;
 import static com.coco.boot.constant.SysConstant.USER_RATE_LIMITER;
 import static com.coco.boot.constant.SysConstant.USING_GHU;
+import static com.coco.boot.constant.SysConstant.USING_USER;
 import static org.springframework.http.HttpStatus.FORBIDDEN;
 
 @AllArgsConstructor
@@ -200,31 +201,10 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
 
 
     @Override
-    public ResponseEntity<String> chat(Conversation requestBody, String auth,String path) {
-        if (!auth.startsWith("Bearer ")) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("Invalid Authorization");
-        } else {
-            String token = auth.substring("Bearer ".length());
-            RBucket<String> bucket = redissonClient.getBucket(SYS_USER_ID + token);
-    public ResponseEntity<String> chat(Object requestBody, String auth) {
+    public ResponseEntity<String> chat(Conversation requestBody, String auth, String path) {
+
         JSONObject userInfo = ChatInterceptor.tl.get();
 
-            if (!bucket.isExists()) {
-                return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("Token does not exist");
-            } else {
-                bucket.expireAsync(Duration.ofHours(coCoConfig.getUserTokenExpire()));
-                JSONObject userInfo = JSON.parseObject(bucket.get());
-                String userId = userInfo.getString("id");
-
-//              根据用户信任级别限流
-                RRateLimiter rateLimiter = this.redissonClient.getRateLimiter(USER_RATE_LIMITER + userId);
-                if (!rateLimiter.isExists()) {
-                    setUserRateLimiter(userId, userInfo.getIntValue("trust_level"));
-                }
-                if (rateLimiter.tryAcquire()) {
-                    // 调用 handleProxy 方法并获取响应
-
-                    ResponseEntity<String> response = handleProxy(requestBody,path);
         String userId = userInfo.getString("id");
         // 根据用户信任级别限流
         RRateLimiter rateLimiter = this.redissonClient.getRateLimiter(USER_RATE_LIMITER + userId);
@@ -236,19 +216,17 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
 
         if (rateLimiter.tryAcquire()) {
             // 调用 handleProxy 方法并获取响应
-            ResponseEntity<String> response = handleProxy(requestBody);
 
+            ResponseEntity<String> response = handleProxy(requestBody, path);
+
+            // 用户访问计数
+            RAtomicLong atomicLong = this.redissonClient.getAtomicLong(USING_USER + userId);
+            atomicLong.incrementAndGet();
 
 //                HttpHeaders newHeaders = new HttpHeaders(response.getHeaders());
 //                newHeaders.set("Access-Control-Allow-Origin", "*");
 //                newHeaders.set("Access-Control-Allow-Methods", "OPTIONS,POST,GET");
 //                newHeaders.set("Access-Control-Allow-Headers", "*");
-                    return ResponseEntity.status(response.getStatusCode()).body(response.getBody());
-                } else {
-                    log.warn("用户ID:{}，trustLevel：{}，token:{}被限流使用", userId, userInfo.getIntValue("trust_level"), token);
-                    return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body("Your Rate limit");
-                }
-            }
             return ResponseEntity.status(response.getStatusCode()).body(response.getBody());
         } else {
             log.warn("用户ID:{}，trustLevel:{}，token:{}被限流使用", userId, userInfo.getIntValue("trust_level"), auth.substring("Bearer ".length()));
@@ -271,11 +249,11 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
     /**
      * 核心代理 方法
      */
-    private ResponseEntity<String> handleProxy(Object requestBody) {
-        // 进来后再判断一次，拦截器判断通过，但万一其他线程正好用完了
-    private ResponseEntity<String> handleProxy(Object requestBody,String path) {
+    private ResponseEntity<String> handleProxy(Object requestBody, String path) {
         // 实现 handleProxy 方法逻辑
+        // 进来后再判断一次，拦截器判断通过，但万一其他线程正好用完了
         RSet<String> ghuAliveKey = redissonClient.getSet(GHU_ALIVE_KEY, StringCodec.INSTANCE);
+
         if (!ghuAliveKey.isExists()) {
             return ResponseEntity.ok("{\"message\": \"No keys\"}");
         }
@@ -295,7 +273,7 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
         headers.set("Authorization", "Bearer " + ghu);
         StopWatch sw = new StopWatch();
         sw.start("进入代理");
-        ResponseEntity<String> response = rest.postForEntity(coCoConfig.getBaseProxy() + "/v1/"+path, new HttpEntity<>(requestBody, headers), String.class);
+        ResponseEntity<String> response = rest.postForEntity(coCoConfig.getBaseProxy() + "/v1/" + path, new HttpEntity<>(requestBody, headers), String.class);
         sw.stop();
         log.info(sw.prettyPrint(TimeUnit.SECONDS));
         // 429被限制
