@@ -14,8 +14,8 @@ spring:
   web:
     resources:
       static-locations: classpath:static/
-
-
+  redisson:
+    file: classpath:redisson-config.yml
 
 
 #okHttpClient配置
@@ -54,5 +54,5 @@ coco:
   #用户基础频率数
   userFrequencyDegree: 1
   #用户token 有效期无请求接口 小时
-  userTokenExpire:  1
+  userTokenExpire: 1
 

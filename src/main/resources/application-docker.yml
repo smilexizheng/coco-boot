@@ -1,0 +1,4 @@
+spring:
+  redisson:
+    file: 'file:/app/conf/redisson-config.yml'
+

@@ -38,6 +38,8 @@ import org.springframework.web.servlet.ModelAndView;
 import org.springframework.web.servlet.view.RedirectView;
 
 import java.time.Duration;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
 import static com.coco.boot.constant.SysConstant.GHU_ALIVE_KEY;
@@ -83,7 +85,7 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
         }
 
         //不符合的数据记录
-        StringBuilder sb = new StringBuilder();
+        Map<String, String> map = new HashMap<>();
         // 处理数据换行
         String[] ghuArray = data.split("%0A|\\r?\\n");
         RSet<String> ghus = redissonClient.getSet(GHU_ALIVE_KEY, StringCodec.INSTANCE);
@@ -91,33 +93,38 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
 
         for (String ghu : ghuArray) {
             if (!ghu.startsWith("gh")) {
-                sb.append(ghu);
+                map.put(ghu, "格式错误");
                 continue;
             }
 
             if (ghus.contains(ghu)) {
+                map.put(ghu, "重复添加");
                 log.info("重复添加GHU:{}", ghu);
                 continue;
             }
-            System.out.println(ghu);
             HttpHeaders httpHeaders = new HttpHeaders();
             httpHeaders.set("Authorization", "token " + ghu);
             //存活校验
             HttpEntity<MultiValueMap<String, Object>> requestEntity = new HttpEntity<>(httpHeaders);
 
-            ResponseEntity<JSONObject> response = rest.exchange(coCoConfig.getBaseApi() + "/copilot_internal/v2/token", HttpMethod.GET, requestEntity, JSONObject.class);
+            try {
+                ResponseEntity<JSONObject> response = rest.exchange(coCoConfig.getBaseApi() + "/copilot_internal/v2/token", HttpMethod.GET, requestEntity, JSONObject.class);
 
-            if (response.getStatusCode() == HttpStatus.OK) {
-                ghus.add(ghu);//
-            } else {
-
-                sb.append(ghu);
+                if (response.getStatusCode() == HttpStatus.OK) {
+                    map.put(ghu, "存活");
+                    ghus.add(ghu);//
+                } else {
+                    map.put(ghu, "失效");
+                    noAliveGhus.add(ghu);
+                    log.warn("upload 存活校验失效: {}", ghu);
+                }
+            } catch (Exception e) {
+                map.put(ghu, "失效");
                 noAliveGhus.add(ghu);
-                log.warn("upload 存活校验失败: {}", ghu);
+                log.warn("upload 存活校验失效: {}", ghu);
             }
-
         }
-        return R.success("操作完成", sb.toString());
+        return R.success("操作完成", map.toString());
     }
 
 

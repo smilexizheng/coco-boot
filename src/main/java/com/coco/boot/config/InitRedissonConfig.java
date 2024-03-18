@@ -4,11 +4,11 @@ import org.redisson.Redisson;
 import org.redisson.api.RedissonClient;
 import org.redisson.config.Config;
 import org.redisson.spring.data.connection.RedissonConnectionFactory;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cache.CacheManager;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.io.Resource;
+import org.springframework.core.io.ResourceLoader;
 import org.springframework.data.redis.cache.RedisCacheConfiguration;
 import org.springframework.data.redis.cache.RedisCacheManager;
 import org.springframework.data.redis.serializer.JdkSerializationRedisSerializer;
@@ -31,9 +31,15 @@ import java.time.Duration;
 @Configuration
 public class InitRedissonConfig {
 
+    @jakarta.annotation.Resource
+    private RedissonProperties redissonProperties;
+
+    @jakarta.annotation.Resource
+    private ResourceLoader resourceLoader;
 
     @Bean(destroyMethod = "shutdown")
-    public RedissonClient getRedissonClient(@Value("classpath:/redisson-config.yml") Resource configFile) throws IOException {
+    public RedissonClient getRedissonClient() throws IOException {
+        Resource configFile = resourceLoader.getResource(redissonProperties.getFile());
         Config config = Config.fromYAML(configFile.getInputStream());
         return Redisson.create(config);
     }
