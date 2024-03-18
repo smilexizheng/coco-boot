@@ -186,7 +186,6 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
     @Override
     public ResponseEntity<String> chat(Object requestBody, String auth) {
         String token = ChatInterceptor.tl.get();
-        ChatInterceptor.tl.remove();// 用完后remove
 
         RBucket<String> bucket = redissonClient.getBucket(SYS_USER_ID + token);
         bucket.expireAsync(Duration.ofHours(coCoConfig.getUserTokenExpire()));
