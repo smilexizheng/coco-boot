@@ -221,19 +221,7 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
 
         if (rateLimiter.tryAcquire()) {
             // 调用 handleProxy 方法并获取响应
-
             ResponseEntity<String> response = handleProxy(requestBody, path);
-
-            // 用户访问计数
-            RAtomicLong atomicLong = this.redissonClient.getAtomicLong(USING_USER + userId);
-            atomicLong.incrementAndGet();
-
-
-//                HttpHeaders newHeaders = new HttpHeaders(response.getHeaders());
-//                newHeaders.set("Access-Control-Allow-Origin", "*");
-//                newHeaders.set("Access-Control-Allow-Methods", "OPTIONS,POST,GET");
-//                newHeaders.set("Access-Control-Allow-Headers", "*");
-
             return ResponseEntity.status(response.getStatusCode()).body(response.getBody());
         } else {
             log.warn("用户ID:{}，trustLevel:{}，token:{}被限流使用", userId, userInfo.getIntValue("trust_level"), auth.substring("Bearer ".length()));
