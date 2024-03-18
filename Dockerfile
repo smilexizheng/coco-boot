@@ -18,7 +18,7 @@ RUN mkdir /app/conf -p
 WORKDIR /app
 # 从构建阶段复制构建好的jar文件到/app
 COPY --from=build /app/target/*.jar /app/app.jar
-COPY --from=build /app/target/redisson-config.yml /app/conf/redisson-config.jar
+COPY --from=build /app/src/main/resources/redisson-config-docker.yml /app/conf/redisson-config.yml
 # 定义环境变量，用于配置文件
 ENV COCO_EXPIRATION_TTL=5 \
     COCO_REDIRECT_URI="" \
