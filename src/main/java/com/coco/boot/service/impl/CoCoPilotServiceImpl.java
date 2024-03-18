@@ -100,7 +100,7 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
         // 存活时间设置为5分钟
         RBucket<Integer> state = redissonClient.getBucket(TOKEN_STATE + stateKey);
         state.set(1, Duration.ofMinutes(coCoConfig.getExpirationTtl()));
-        String authUrl = coCoConfig.getAuthorizationEndpoint() + "?client_id=CLIENT_ID&state=" + stateKey + "&redirect_uri=" + encodedRedirectUri + "&response_type=code&scope=read";
+        String authUrl = coCoConfig.getAuthorizationEndpoint() + "?client_id="+coCoConfig.getClientId()+"&state=" + stateKey + "&redirect_uri=" + encodedRedirectUri + "&response_type=code&scope=read";
 
         return new ModelAndView(new RedirectView(authUrl, true, false));
     }
@@ -237,7 +237,7 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
             return ResponseEntity.ok("{\"message\": \"No keys\"}");
         }
 
-        String ghu = getGhu(ghuAliveKey, 0);
+        String ghu = getGhu(ghuAliveKey);
         if (StringUtil.isBlank(ghu)) {
             return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body("{\"message\": \"Rate limit,The server is under great pressure\"}");
         }
@@ -275,25 +275,29 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
 
     }
 
+
     /**
      * 限流随机现有GHU
+     * 递归改成循环调用。防止栈溢出
      */
-    public String getGhu(RSet<String> ghuAliveKey, int retryCount) {
-        if (retryCount > 10) {
-            return null;
+    public String getGhu(RSet<String> ghuAliveKey) {
+        RRateLimiter rateLimiter;
+        int retryCount = 0;
+        while (retryCount <= 10) {
+            String ghu = ghuAliveKey.random();
+            rateLimiter = this.redissonClient.getRateLimiter(GHU_RATE_LIMITER + ghu);
+            if (!rateLimiter.isExists()) {
+                RateIntervalUnit timeUnit = RateIntervalUnit.SECONDS;
+                rateLimiter.trySetRate(RateType.OVERALL, coCoConfig.getFrequencyDegree(), coCoConfig.getFrequencyTime(), timeUnit);
+                rateLimiter.expireAsync(Duration.ofMillis(timeUnit.toMillis(coCoConfig.getFrequencyDegree())));
+            }
+            if (rateLimiter.tryAcquire()) {
+                return ghu;
+            } else {
+                log.info("{} 被限流使用", ghu);
+                retryCount++;
+            }
         }
-        String ghu = ghuAliveKey.random();
-        RRateLimiter rateLimiter = this.redissonClient.getRateLimiter(GHU_RATE_LIMITER + ghu);
-        if (!rateLimiter.isExists()) {
-            RateIntervalUnit timeUnit = RateIntervalUnit.SECONDS;
-            rateLimiter.trySetRate(RateType.OVERALL, coCoConfig.getFrequencyDegree(), coCoConfig.getFrequencyTime(), timeUnit);
-            rateLimiter.expireAsync(Duration.ofMillis(timeUnit.toMillis(coCoConfig.getFrequencyDegree())));
-        }
-        if (rateLimiter.tryAcquire()) {
-            return ghu;
-        } else {
-            log.info("{} 被限流使用", ghu);
-            return getGhu(ghuAliveKey, ++retryCount);
-        }
+        return null;
     }
 }
