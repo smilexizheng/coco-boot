@@ -8,6 +8,7 @@ import com.alibaba.fastjson2.JSONObject;
 import com.coco.boot.common.R;
 import com.coco.boot.config.CoCoConfig;
 import com.coco.boot.entity.ServiceStatus;
+import com.coco.boot.pojo.Conversation;
 import com.coco.boot.service.CoCoPilotService;
 import jodd.util.StringUtil;
 import lombok.AllArgsConstructor;
@@ -37,8 +38,8 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
     private final RestTemplate rest;
 
     private final RedissonClient redissonClient;
-    private final CoCoConfig coCoConfig;
 
+    private final CoCoConfig coCoConfig;
 
     private static final HttpHeaders headersApiGithub;
 
@@ -171,7 +172,7 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
     }
 
     @Override
-    public ResponseEntity<String> chat(Object requestBody, String auth) {
+    public ResponseEntity<String> chat(Conversation requestBody, String auth) {
         if (!auth.startsWith("Bearer ")) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("Invalid Authorization");
         } else {
