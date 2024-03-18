@@ -103,22 +103,17 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
             HttpHeaders httpHeaders = new HttpHeaders();
             httpHeaders.set("Authorization", "token " + ghu);
             //存活校验
-            try {
-                HttpEntity<MultiValueMap<String, Object>> requestEntity = new HttpEntity<>(httpHeaders);
+            HttpEntity<MultiValueMap<String, Object>> requestEntity = new HttpEntity<>(httpHeaders);
 
-                ResponseEntity<JSONObject> response = rest.exchange(coCoConfig.getBaseApi() + "/copilot_internal/v2/token", HttpMethod.GET, requestEntity, JSONObject.class);
+            ResponseEntity<JSONObject> response = rest.exchange(coCoConfig.getBaseApi() + "/copilot_internal/v2/token", HttpMethod.GET, requestEntity, JSONObject.class);
 
-                if (response.getStatusCode() == HttpStatus.OK) {
-                    JSONObject result = response.getBody();
-                    String token = result.getString("token");
-                    ghus.add(ghu);//
-                } else {
-                    throw new Exception();
-                }
-            } catch (Exception e) {
+            if (response.getStatusCode() == HttpStatus.OK) {
+                ghus.add(ghu);//
+            } else {
+
                 sb.append(ghu);
                 noAliveGhus.add(ghu);
-                log.warn("upload 存活校验失败", e);
+                log.warn("upload 存活校验失败: {}", ghu);
             }
 
         }
@@ -203,6 +198,7 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
     @Override
     public ResponseEntity<String> chat(Conversation requestBody, String auth, String path) {
 
+
         JSONObject userInfo = ChatInterceptor.tl.get();
 
         String userId = userInfo.getString("id");
@@ -223,15 +219,19 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
             RAtomicLong atomicLong = this.redissonClient.getAtomicLong(USING_USER + userId);
             atomicLong.incrementAndGet();
 
+
+
 //                HttpHeaders newHeaders = new HttpHeaders(response.getHeaders());
 //                newHeaders.set("Access-Control-Allow-Origin", "*");
 //                newHeaders.set("Access-Control-Allow-Methods", "OPTIONS,POST,GET");
 //                newHeaders.set("Access-Control-Allow-Headers", "*");
+
             return ResponseEntity.status(response.getStatusCode()).body(response.getBody());
         } else {
             log.warn("用户ID:{}，trustLevel:{}，token:{}被限流使用", userId, userInfo.getIntValue("trust_level"), auth.substring("Bearer ".length()));
             return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body("Your Rate limit");
         }
+
     }
 
     @Override
@@ -273,17 +273,14 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
         headers.set("Authorization", "Bearer " + ghu);
         StopWatch sw = new StopWatch();
         sw.start("进入代理");
-        ResponseEntity<String> response = rest.postForEntity(coCoConfig.getBaseProxy() + "/v1/" + path, new HttpEntity<>(requestBody, headers), String.class);
+
+        ResponseEntity<String> response = rest.postForEntity(coCoConfig.getBaseProxy() + path, new HttpEntity<>(requestBody, headers), String.class);
+
         sw.stop();
         log.info(sw.prettyPrint(TimeUnit.SECONDS));
         // 429被限制
         if (response.getStatusCode() == HttpStatus.TOO_MANY_REQUESTS) {
-            String retryAfter = response.getHeaders().getFirst("x-ratelimit-user-retry-after");
-            // 保留原有判断
-            if (retryAfter != null) {
-
-            }
-//            异步移除，并添加到不可用key
+            // 异步移除，并添加到不可用key
             ghuAliveKey.removeAsync(ghu);
             RSet<String> ghuNoAliveKey = redissonClient.getSet(GHU_NO_ALIVE_KEY, StringCodec.INSTANCE);
 
