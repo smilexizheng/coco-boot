@@ -27,6 +27,16 @@ services:
       COCO_USER_FREQUENCY_DEGREE: "1"
       COCO_USER_TOKEN_EXPIRE: "1"
       COCO_USER_LEVEL: "2"
+      RISK_CONTR_GET_TOKEN_NUM: "10"
+      RISK_CONTR_TOKEN_MAX_REQ: "500"
+      RISK_CONTR_USER_MAX_REQ: "2000"
+      RISK_CONTR_USER_MAX_TIME: "10"
+      RISK_CONTR_TOKEN_INVALID_NUM: "10"
+      RISK_CONTR_REJECT_TIME_NUM: "30"
+      RISK_CONTR_REJECT_TIME: "2"
+      RISK_CONTR_BAN_NUM: "5"
+    volumes:
+      - ./src/main/resources/redisson-config.yml:/app/conf/redisson-config.yml:rw
 
   redis:
     image: redis
