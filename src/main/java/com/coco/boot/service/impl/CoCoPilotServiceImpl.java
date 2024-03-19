@@ -75,8 +75,7 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
             // 存活校验
             HttpEntity<MultiValueMap<String, Object>> requestEntity = new HttpEntity<>(httpHeaders);
 
-            ResponseEntity<JSONObject> response = rest.exchange(coCoConfig.getBaseApi(), HttpMethod.GET, requestEntity,
-                    JSONObject.class);
+            ResponseEntity<JSONObject> response = rest.exchange(coCoConfig.getBaseApi(), HttpMethod.GET, requestEntity, JSONObject.class);
 
             if (response.getStatusCode().is2xxSuccessful()) {
                 map.put(ghu, "存活");
@@ -101,8 +100,7 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
         // 存活时间设置为5分钟
         RBucket<Integer> state = redissonClient.getBucket(TOKEN_STATE + stateKey);
         state.set(1, Duration.ofMinutes(coCoConfig.getExpirationTtl()));
-        String authUrl = coCoConfig.getAuthorizationEndpoint() + "?client_id=" + coCoConfig.getClientId() + "&state="
-                + stateKey + "&redirect_uri=" + encodedRedirectUri + "&response_type=code&scope=read";
+        String authUrl = coCoConfig.getAuthorizationEndpoint() + "?client_id=" + coCoConfig.getClientId() + "&state=" + stateKey + "&redirect_uri=" + encodedRedirectUri + "&response_type=code&scope=read";
 
         return new ModelAndView(new RedirectView(authUrl, true, false));
     }
@@ -129,12 +127,10 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
         requestBody.add("redirect_uri", coCoConfig.getRedirectUri());
 
         // 发送请求并解析响应
-        ResponseEntity<JSONObject> response = rest.postForEntity(coCoConfig.getTokenEndpoint(),
-                new HttpEntity<>(requestBody, headers), JSONObject.class);
+        ResponseEntity<JSONObject> response = rest.postForEntity(coCoConfig.getTokenEndpoint(), new HttpEntity<>(requestBody, headers), JSONObject.class);
         if (response.getStatusCode() != HttpStatus.OK) {
             log.error("获取Token失败");
-            return new ResponseEntity<>("{\"message\": \"Token Get Error\", \"data\": \"\"}",
-                    HttpStatus.INTERNAL_SERVER_ERROR);
+            return new ResponseEntity<>("{\"message\": \"Token Get Error\", \"data\": \"\"}", HttpStatus.INTERNAL_SERVER_ERROR);
         }
         JSONObject tokenData = response.getBody();
         assert tokenData != null;
@@ -146,12 +142,10 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
         // 使用 access_token 获取用户信息
         HttpHeaders userInfoHeaders = new HttpHeaders();
         userInfoHeaders.setBearerAuth(accessToken);
-        ResponseEntity<JSONObject> responseEntity = rest.exchange(coCoConfig.getUserEndpoint(), HttpMethod.GET,
-                new HttpEntity<>(userInfoHeaders), JSONObject.class);
+        ResponseEntity<JSONObject> responseEntity = rest.exchange(coCoConfig.getUserEndpoint(), HttpMethod.GET, new HttpEntity<>(userInfoHeaders), JSONObject.class);
         if (responseEntity.getStatusCode() != HttpStatus.OK) {
             log.error("获取用户信息失败");
-            return new ResponseEntity<>("{\"message\": \"User Info Get Error\", \"data\": \"\"}",
-                    HttpStatus.INTERNAL_SERVER_ERROR);
+            return new ResponseEntity<>("{\"message\": \"User Info Get Error\", \"data\": \"\"}", HttpStatus.INTERNAL_SERVER_ERROR);
         }
         JSONObject userInfo = responseEntity.getBody();
         assert userInfo != null;
@@ -183,9 +177,7 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
         RRateLimiter rateLimiter = redissonClient.getRateLimiter(USER_RATE_LIMITER + userId);
         if (!rateLimiter.isExists()) {
             RateIntervalUnit timeUnit = RateIntervalUnit.MINUTES;
-            rateLimiter.trySetRate(RateType.OVERALL,
-                    ((long) coCoConfig.getUserFrequencyDegree() * userInfo.getIntValue("trust_level")),
-                    coCoConfig.getUserRateTime(), timeUnit);
+            rateLimiter.trySetRate(RateType.OVERALL, ((long) coCoConfig.getUserFrequencyDegree() * userInfo.getIntValue("trust_level")), coCoConfig.getUserRateTime(), timeUnit);
             rateLimiter.expireAsync(Duration.ofMinutes(coCoConfig.getUserRateTime()));
         }
 
@@ -194,8 +186,7 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
             ResponseEntity<String> response = handleProxy(requestBody, path);
             return ResponseEntity.status(response.getStatusCode()).body(response.getBody());
         } else {
-            log.warn("用户ID:{}，trustLevel:{}，token:{}被限流使用", userId, userInfo.getIntValue("trust_level"),
-                    auth.substring("Bearer ".length()));
+            log.warn("用户ID:{}，trustLevel:{}，token:{}被限流使用", userId, userInfo.getIntValue("trust_level"), auth.substring("Bearer ".length()));
             return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body("Your Rate limit");
         }
 
@@ -232,8 +223,7 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
         while (i < 2) {
             String ghu = getGhu(ghuAliveKey);
             if (StringUtil.isBlank(ghu)) {
-                return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
-                        .body("{\"message\": \"Rate limit,The server is under great pressure\"}");
+                return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body("{\"message\": \"Rate limit,The server is under great pressure\"}");
             }
             log.info("{}可用令牌数量，当前选择{}", ghuAliveKey.size(), ghu);
             HttpHeaders headers = new HttpHeaders();
@@ -241,8 +231,7 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
             headers.set("Authorization", "Bearer " + ghu);
             StopWatch sw = new StopWatch();
             sw.start("进入代理");
-            ResponseEntity<String> response = rest.postForEntity(coCoConfig.getBaseProxy() + path,
-                    new HttpEntity<>(requestBody, headers), String.class);
+            ResponseEntity<String> response = rest.postForEntity(coCoConfig.getBaseProxy() + path, new HttpEntity<>(requestBody, headers), String.class);
             sw.stop();
             log.info(sw.prettyPrint(TimeUnit.SECONDS));
             if (response.getStatusCode().is2xxSuccessful()) {
@@ -276,8 +265,7 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
             rateLimiter = redissonClient.getRateLimiter(GHU_RATE_LIMITER + ghu);
             if (!rateLimiter.isExists()) {
                 RateIntervalUnit timeUnit = RateIntervalUnit.SECONDS;
-                rateLimiter.trySetRate(RateType.OVERALL, coCoConfig.getFrequencyDegree(), coCoConfig.getFrequencyTime(),
-                        timeUnit);
+                rateLimiter.trySetRate(RateType.OVERALL, coCoConfig.getFrequencyDegree(), coCoConfig.getFrequencyTime(), timeUnit);
                 rateLimiter.expireAsync(Duration.ofSeconds(2));
             }
             if (rateLimiter.tryAcquire()) {
