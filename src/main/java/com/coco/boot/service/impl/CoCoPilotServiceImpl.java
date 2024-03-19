@@ -78,15 +78,16 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
 
             ResponseEntity<JSONObject> response = rest.exchange(coCoConfig.getBaseApi(), HttpMethod.GET, requestEntity, JSONObject.class);
 
-            if (response.getStatusCode() == HttpStatus.UNAUTHORIZED || response.getStatusCode() == HttpStatus.FORBIDDEN) {
-                map.put(ghu, "失效");
-                log.warn("upload 存活校验失效: {}", ghu);
+
+            if (response.getStatusCode().is2xxSuccessful()) {
+                map.put(ghu, "存活");
+                ghus.add(ghu);
             } else if (response.getStatusCode() == HttpStatus.TOO_MANY_REQUESTS) {
                 Integer retry = Integer.valueOf(response.getHeaders().get(HEADER_RETRY).get(0));
                 log.info("upload 存活校验限流: {}, 返回: {}", ghu, response.getBody());
             } else {
-                map.put(ghu, "存活");
-                ghus.add(ghu);
+                map.put(ghu, "失效");
+                log.warn("upload 存活校验失效: {}", ghu);
             }
         }
         return R.success("操作完成", map.toString());
@@ -249,13 +250,14 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
             } else {
                 ghuAliveKey.remove(ghu);
                 if (response.getStatusCode() == HttpStatus.TOO_MANY_REQUESTS) {
-                    String retryAfter = response.getHeaders().getFirst("x-ratelimit-user-retry-after");
+                    String retryAfter = response.getHeaders().getFirst(HEADER_RETRY);
                     // 默认 600秒
                     long time = 120;
                     if (StringUtil.isNotBlank(retryAfter)) {
                         try {
                             time = Long.parseLong(retryAfter);
-                        } catch (NumberFormatException e) {}
+                        } catch (NumberFormatException e) {
+                        }
                     }
 
                     if (time > 1000) {
@@ -268,7 +270,7 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
                                 redissonClient.getSet(GHU_ALIVE_KEY, StringCodec.INSTANCE).add(event.getKey());
                             });
                         }
-                        collingMap.put(ghu, 1, time+5, TimeUnit.SECONDS);
+                        collingMap.put(ghu, 1, time + 5, TimeUnit.SECONDS);
                     }
                 } else {
                     redissonClient.getSet(GHU_NO_ALIVE_KEY, StringCodec.INSTANCE).addAsync(ghu);
