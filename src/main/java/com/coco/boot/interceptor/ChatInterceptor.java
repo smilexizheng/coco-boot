@@ -12,6 +12,7 @@ import org.redisson.api.RBucket;
 import org.redisson.api.RSet;
 import org.redisson.api.RedissonClient;
 import org.redisson.client.codec.StringCodec;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.servlet.HandlerInterceptor;
 
 import java.io.IOException;
@@ -72,7 +73,9 @@ public class ChatInterceptor implements HandlerInterceptor {
 
     @Override
     public void afterCompletion(HttpServletRequest request, HttpServletResponse response, Object handler, Exception ex) throws Exception {
-        if (response.getStatus() == HttpServletResponse.SC_OK) {
+        // 由于handleProxy中的判断为is2xxSuccessful(),对齐状态码
+        HttpStatus status = HttpStatus.resolve(response.getStatus());
+        if (status != null && status.is2xxSuccessful()) {
             // 用户访问计数
             RAtomicLong atomicLong = this.redissonClient.getAtomicLong(USING_USER + tl.get().getString("id"));
             atomicLong.incrementAndGet();
