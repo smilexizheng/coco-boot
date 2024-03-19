@@ -26,6 +26,7 @@ services:
       COCO_USER_RATE_TIME: "5"
       COCO_USER_FREQUENCY_DEGREE: "1"
       COCO_USER_TOKEN_EXPIRE: "1"
+      COCO_USER_LEVEL: "2"
 
   redis:
     image: redis

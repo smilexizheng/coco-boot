@@ -33,26 +33,28 @@ ok:
 #coco配置
 coco:
   # 请求L站 state 过期时间 分钟
-  expirationTtl: 5
+  expirationTtl: ${COCO_EXPIRATION_TTL:5}
   #重定向地址
-  redirectUri:
-  clientId:
-  clientSecret:
+  redirectUri: ${COCO_REDIRECT_URI}
+  clientId: ${COCO_CLIENT_ID}
+  clientSecret: ${COCO_CLIENT_SECRET}
   #  L站
-  authorizationEndpoint:
-  tokenEndpoint:
-  userEndpoint:
+  authorizationEndpoint: ${COCO_AUTHORIZATION_ENDPOINT}
+  tokenEndpoint: ${COCO_TOKEN_ENDPOINT}
+  userEndpoint: ${COCO_USER_ENDPOINT}
   #代理节点
-  baseApi:
-  baseProxy:
+  baseApi: ${COCO_BASE_API}
+  baseProxy: ${COCO_BASE_PROXY}
   #ghu 频率秒  1秒8次
-  frequencyTime: 1
+  frequencyTime: ${COCO_FREQUENCY_TIME:1}
   #ghu频率数
-  frequencyDegree: 8
+  frequencyDegree: ${COCO_FREQUENCY_DEGREE:8}
   #用户基础频率  5秒1次
-  userRateTime: 5
+  userRateTime: ${COCO_USER_RATE_TIME:5}
   #用户基础频率数
-  userFrequencyDegree: 1
+  userFrequencyDegree: ${COCO_USER_FREQUENCY_DEGREE:1}
   #用户token 有效期无请求接口 小时
-  userTokenExpire: 1
+  userTokenExpire: ${COCO_USER_TOKEN_EXPIRE:1}
+  #允许用户的最低等级等级
+  userLevel: ${COCO_USER_LEVEL:2}
 

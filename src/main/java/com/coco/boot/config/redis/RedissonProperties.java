@@ -1,4 +1,4 @@
-package com.coco.boot.config;
+package com.coco.boot.config.redis;
 
 import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;

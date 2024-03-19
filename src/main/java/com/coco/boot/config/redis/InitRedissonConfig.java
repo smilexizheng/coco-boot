@@ -1,4 +1,4 @@
-package com.coco.boot.config;
+package com.coco.boot.config.redis;
 
 import org.redisson.Redisson;
 import org.redisson.api.RedissonClient;

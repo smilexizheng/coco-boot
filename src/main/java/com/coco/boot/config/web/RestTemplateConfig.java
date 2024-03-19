@@ -1,4 +1,4 @@
-package com.coco.boot.config;
+package com.coco.boot.config.web;
 
 import lombok.extern.slf4j.Slf4j;
 import okhttp3.ConnectionPool;
