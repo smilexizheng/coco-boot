@@ -1,9 +1,14 @@
 version: '3.8'
 services:
-  my-java-app:
+  app:
     build:
       context: .
       dockerfile: Dockerfile
+    image: coco-boot:latest
+    container_name: coco-boot
+    # 默认的redisson配置文件中的地址是127.0.0.1，所以需要使用host模式
+    network_mode: "host"
+    # 映射端口 在host模式下无效
     ports:
       - "8181:8181"
     environment:
@@ -21,5 +26,15 @@ services:
       COCO_USER_RATE_TIME: "5"
       COCO_USER_FREQUENCY_DEGREE: "1"
       COCO_USER_TOKEN_EXPIRE: "1"
-    volumes:
-      - /app/conf:/app/conf
+
+  redis:
+    image: redis
+    container_name: coco-redis
+    environment:
+      # 设置时区
+      - TZ=Asia/Shanghai
+    volumes: # 配置数据卷
+      - ./redis_data:/data
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes

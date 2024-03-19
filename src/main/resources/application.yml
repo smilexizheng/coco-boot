@@ -45,7 +45,11 @@ coco:
   #代理节点
   baseApi:
   baseProxy:
-  #用户基础*频率 分钟  5分钟15次
+  #ghu 频率秒  1秒8次
+  frequencyTime: 1
+  #ghu频率数
+  frequencyDegree: 8
+  #用户基础频率  5分钟10次
   userRateTime: 5
   #用户基础频率数
   userFrequencyDegree: 15
