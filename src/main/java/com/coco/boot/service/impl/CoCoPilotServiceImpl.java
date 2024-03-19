@@ -41,7 +41,6 @@ import static org.springframework.http.HttpStatus.FORBIDDEN;
 @Slf4j
 public class CoCoPilotServiceImpl implements CoCoPilotService {
 
-
     private final RestTemplate rest;
 
     private final RedissonClient redissonClient;
@@ -54,7 +53,7 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
             return R.fail();
         }
 
-        //不符合的数据记录
+        // 不符合的数据记录
         Map<String, String> map = new HashMap<>();
         // 处理数据换行
         String[] ghuArray = data.split("%0A|\\r?\\n");
@@ -73,25 +72,25 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
             }
             HttpHeaders httpHeaders = new HttpHeaders();
             httpHeaders.set("Authorization", "token " + ghu);
-            //存活校验
+            // 存活校验
             HttpEntity<MultiValueMap<String, Object>> requestEntity = new HttpEntity<>(httpHeaders);
 
-            ResponseEntity<JSONObject> response = rest.exchange(coCoConfig.getBaseApi(), HttpMethod.GET, requestEntity, JSONObject.class);
+            ResponseEntity<JSONObject> response = rest.exchange(coCoConfig.getBaseApi(), HttpMethod.GET, requestEntity,
+                    JSONObject.class);
 
-            if (response.getStatusCode() == HttpStatus.UNAUTHORIZED || response.getStatusCode() == HttpStatus.FORBIDDEN) {
-                map.put(ghu, "失效");
-                log.warn("upload 存活校验失效: {}", ghu);
-            } else if (response.getStatusCode() == HttpStatus.TOO_MANY_REQUESTS) {
-                Integer retry = Integer.valueOf(response.getHeaders().get(HEADER_RETRY).get(0));
-                log.info("upload 存活校验限流: {}, 返回: {}", ghu, response.getBody());
-            } else {
+            if (response.getStatusCode().is2xxSuccessful()) {
                 map.put(ghu, "存活");
                 ghus.add(ghu);
+            } else if (response.getStatusCode() == HttpStatus.TOO_MANY_REQUESTS) {
+                setCoolkey(ghu, response);
+                log.info("upload 存活校验限流: {}, 返回: {}", ghu, response.getBody());
+            } else {
+                map.put(ghu, "失效");
+                log.warn("upload 存活校验失效: {}", ghu);
             }
         }
         return R.success("操作完成", map.toString());
     }
-
 
     @Override
     public ModelAndView token() {
@@ -102,7 +101,8 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
         // 存活时间设置为5分钟
         RBucket<Integer> state = redissonClient.getBucket(TOKEN_STATE + stateKey);
         state.set(1, Duration.ofMinutes(coCoConfig.getExpirationTtl()));
-        String authUrl = coCoConfig.getAuthorizationEndpoint() + "?client_id=" + coCoConfig.getClientId() + "&state=" + stateKey + "&redirect_uri=" + encodedRedirectUri + "&response_type=code&scope=read";
+        String authUrl = coCoConfig.getAuthorizationEndpoint() + "?client_id=" + coCoConfig.getClientId() + "&state="
+                + stateKey + "&redirect_uri=" + encodedRedirectUri + "&response_type=code&scope=read";
 
         return new ModelAndView(new RedirectView(authUrl, true, false));
     }
@@ -115,7 +115,6 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
             return ResponseEntity.status(FORBIDDEN).build();
         }
         bucket.delete();
-
 
         String auth = "Basic " + Base64.encode(coCoConfig.getClientId() + ':' + coCoConfig.getClientSecret());
 
@@ -130,10 +129,12 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
         requestBody.add("redirect_uri", coCoConfig.getRedirectUri());
 
         // 发送请求并解析响应
-        ResponseEntity<JSONObject> response = rest.postForEntity(coCoConfig.getTokenEndpoint(), new HttpEntity<>(requestBody, headers), JSONObject.class);
+        ResponseEntity<JSONObject> response = rest.postForEntity(coCoConfig.getTokenEndpoint(),
+                new HttpEntity<>(requestBody, headers), JSONObject.class);
         if (response.getStatusCode() != HttpStatus.OK) {
             log.error("获取Token失败");
-            return new ResponseEntity<>("{\"message\": \"Token Get Error\", \"data\": \"\"}", HttpStatus.INTERNAL_SERVER_ERROR);
+            return new ResponseEntity<>("{\"message\": \"Token Get Error\", \"data\": \"\"}",
+                    HttpStatus.INTERNAL_SERVER_ERROR);
         }
         JSONObject tokenData = response.getBody();
         assert tokenData != null;
@@ -142,21 +143,21 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
             return new ResponseEntity<>("Error fetching token", HttpStatus.INTERNAL_SERVER_ERROR);
         }
 
-
         // 使用 access_token 获取用户信息
         HttpHeaders userInfoHeaders = new HttpHeaders();
         userInfoHeaders.setBearerAuth(accessToken);
-        ResponseEntity<JSONObject> responseEntity = rest.exchange(coCoConfig.getUserEndpoint(), HttpMethod.GET, new HttpEntity<>(userInfoHeaders), JSONObject.class);
+        ResponseEntity<JSONObject> responseEntity = rest.exchange(coCoConfig.getUserEndpoint(), HttpMethod.GET,
+                new HttpEntity<>(userInfoHeaders), JSONObject.class);
         if (responseEntity.getStatusCode() != HttpStatus.OK) {
             log.error("获取用户信息失败");
-            return new ResponseEntity<>("{\"message\": \"User Info Get Error\", \"data\": \"\"}", HttpStatus.INTERNAL_SERVER_ERROR);
+            return new ResponseEntity<>("{\"message\": \"User Info Get Error\", \"data\": \"\"}",
+                    HttpStatus.INTERNAL_SERVER_ERROR);
         }
         JSONObject userInfo = responseEntity.getBody();
         assert userInfo != null;
         String userId = userInfo.getString("id");
 
-
-        // 检测用户信息         0级用户直接ban
+        // 检测用户信息 0级用户直接ban
         int trustLevel = userInfo.getIntValue("trust_level");
         boolean active = userInfo.getBooleanValue("active");
         if (!active || trustLevel < coCoConfig.getUserLevel()) {
@@ -167,13 +168,12 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
         String userInfoJsonString = JSON.toJSONString(userInfo);
         RBucket<String> users = redissonClient.getBucket(LINUX_DO_USER_ID + userId);
         users.set(userInfoJsonString);
-        //虚拟本系统用户信息- 通过此获取到linux userId ，继而可以获取 linux的tokens
+        // 虚拟本系统用户信息- 通过此获取到linux userId ，继而可以获取 linux的tokens
         String token = IdUtil.simpleUUID();
         RBucket<String> cocoAuth = redissonClient.getBucket(SYS_USER_ID + token);
         cocoAuth.set(userInfoJsonString, Duration.ofHours(coCoConfig.getUserTokenExpire()));
         return new ResponseEntity<>("{\"message\": \"Token Get Success\", \"data\": \"" + token + "\"}", HttpStatus.OK);
     }
-
 
     @Override
     public ResponseEntity<String> chat(Conversation requestBody, String auth, String path) {
@@ -183,8 +183,10 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
         RRateLimiter rateLimiter = redissonClient.getRateLimiter(USER_RATE_LIMITER + userId);
         if (!rateLimiter.isExists()) {
             RateIntervalUnit timeUnit = RateIntervalUnit.MINUTES;
-            rateLimiter.trySetRate(RateType.OVERALL, ((long) coCoConfig.getUserFrequencyDegree() * userInfo.getIntValue("trust_level")), coCoConfig.getUserRateTime(), timeUnit);
-            rateLimiter.expireAsync(Duration.ofMinutes(30));
+            rateLimiter.trySetRate(RateType.OVERALL,
+                    ((long) coCoConfig.getUserFrequencyDegree() * userInfo.getIntValue("trust_level")),
+                    coCoConfig.getUserRateTime(), timeUnit);
+            rateLimiter.expireAsync(Duration.ofMinutes(coCoConfig.getUserRateTime()));
         }
 
         if (rateLimiter.tryAcquire()) {
@@ -192,7 +194,8 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
             ResponseEntity<String> response = handleProxy(requestBody, path);
             return ResponseEntity.status(response.getStatusCode()).body(response.getBody());
         } else {
-            log.warn("用户ID:{}，trustLevel:{}，token:{}被限流使用", userId, userInfo.getIntValue("trust_level"), auth.substring("Bearer ".length()));
+            log.warn("用户ID:{}，trustLevel:{}，token:{}被限流使用", userId, userInfo.getIntValue("trust_level"),
+                    auth.substring("Bearer ".length()));
             return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body("Your Rate limit");
         }
 
@@ -208,7 +211,6 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
         status.setGhuCount(aliveCount + noAliveCount);
         return status;
     }
-
 
     /**
      * 核心代理 方法
@@ -230,7 +232,8 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
         while (i < 2) {
             String ghu = getGhu(ghuAliveKey);
             if (StringUtil.isBlank(ghu)) {
-                return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body("{\"message\": \"Rate limit,The server is under great pressure\"}");
+                return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                        .body("{\"message\": \"Rate limit,The server is under great pressure\"}");
             }
             log.info("{}可用令牌数量，当前选择{}", ghuAliveKey.size(), ghu);
             HttpHeaders headers = new HttpHeaders();
@@ -238,36 +241,19 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
             headers.set("Authorization", "Bearer " + ghu);
             StopWatch sw = new StopWatch();
             sw.start("进入代理");
-            ResponseEntity<String> response = rest.postForEntity(coCoConfig.getBaseProxy() + path, new HttpEntity<>(requestBody, headers), String.class);
+            ResponseEntity<String> response = rest.postForEntity(coCoConfig.getBaseProxy() + path,
+                    new HttpEntity<>(requestBody, headers), String.class);
             sw.stop();
             log.info(sw.prettyPrint(TimeUnit.SECONDS));
             if (response.getStatusCode().is2xxSuccessful()) {
-                //ghu使用成功次数
+                // ghu使用成功次数
                 RAtomicLong atomicLong = redissonClient.getAtomicLong(USING_GHU + ghu);
                 atomicLong.incrementAndGet();
                 return response;
             } else {
                 ghuAliveKey.remove(ghu);
                 if (response.getStatusCode() == HttpStatus.TOO_MANY_REQUESTS) {
-                    String retryAfter = response.getHeaders().getFirst("x-ratelimit-user-retry-after");
-                    // 默认 600秒 等待此 ghu 恢复
-                    long time = 600;
-                    if (StringUtil.isNotBlank(retryAfter)) {
-                        //如果返回中指明时间，则使用这个时间
-                        try {
-                            time = Long.parseLong(retryAfter);
-                        } catch (NumberFormatException e) {
-                        }
-                    }
-                    RMapCache<String, Integer> collingMap = redissonClient.getMapCache(GHU_COOLING_KEY);
-                    if (!collingMap.isExists()) {
-                        collingMap.addListener((EntryExpiredListener<String, Integer>) event -> {
-                            // expired key
-                            redissonClient.getSet(GHU_ALIVE_KEY, StringCodec.INSTANCE).add(event.getKey());
-                        });
-                    }
-                    //在一定时间后将 ghu 重新加入到可用列表
-                    collingMap.put(ghu, 1, time + 5, TimeUnit.SECONDS);
+                    setCoolkey(ghu, response);
                 } else {
                     redissonClient.getSet(GHU_NO_ALIVE_KEY, StringCodec.INSTANCE).addAsync(ghu);
                 }
@@ -277,7 +263,6 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
 
         return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body("{\"message\": \"Too Many Requests\"}");
     }
-
 
     /**
      * 限流随机现有GHU
@@ -291,8 +276,9 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
             rateLimiter = redissonClient.getRateLimiter(GHU_RATE_LIMITER + ghu);
             if (!rateLimiter.isExists()) {
                 RateIntervalUnit timeUnit = RateIntervalUnit.SECONDS;
-                rateLimiter.trySetRate(RateType.OVERALL, coCoConfig.getFrequencyDegree(), coCoConfig.getFrequencyTime(), timeUnit);
-                rateLimiter.expireAsync(Duration.ofHours(2));
+                rateLimiter.trySetRate(RateType.OVERALL, coCoConfig.getFrequencyDegree(), coCoConfig.getFrequencyTime(),
+                        timeUnit);
+                rateLimiter.expireAsync(Duration.ofSeconds(2));
             }
             if (rateLimiter.tryAcquire()) {
                 return ghu;
@@ -303,4 +289,27 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
         }
         return null;
     }
+
+    private void setCoolkey(String ghu, ResponseEntity response) {
+        String retryAfter = response.getHeaders().getFirst("x-ratelimit-user-retry-after");
+        // 默认 600秒 等待此 ghu 恢复
+        long time = 600;
+        if (StringUtil.isNotBlank(retryAfter)) {
+            // 如果返回中指明时间，则使用这个时间
+            try {
+                time = Long.parseLong(retryAfter);
+            } catch (NumberFormatException e) {
+            }
+        }
+        RMapCache<String, Integer> collingMap = redissonClient.getMapCache(GHU_COOLING_KEY);
+        if (!collingMap.isExists()) {
+            collingMap.addListener((EntryExpiredListener<String, Integer>) event -> {
+                // expired key
+                redissonClient.getSet(GHU_ALIVE_KEY, StringCodec.INSTANCE).add(event.getKey());
+            });
+        }
+        // 在一定时间后将 ghu 重新加入到可用列表
+        collingMap.put(ghu, 1, time + 5, TimeUnit.SECONDS);
+    }
+
 }
