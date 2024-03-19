@@ -1,10 +1,14 @@
 version: '3.8'
 services:
-  coco-boot:
+  app:
     build:
       context: .
       dockerfile: Dockerfile
+    image: coco-boot:latest
+    container_name: coco-boot
+    # 默认的redisson配置文件中的地址是127.0.0.1，所以需要使用host模式
     network_mode: "host"
+    # 映射端口 在host模式下无效
     ports:
       - "8181:8181"
     environment:
