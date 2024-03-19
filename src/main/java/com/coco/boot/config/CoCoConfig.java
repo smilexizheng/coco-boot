@@ -27,6 +27,7 @@ public class CoCoConfig {
     private Integer userRateTime;
     private Integer userFrequencyDegree;
     private Integer userTokenExpire;
+    private Integer userLevel;
 }
 
 

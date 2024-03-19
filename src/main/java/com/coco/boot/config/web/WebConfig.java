@@ -1,4 +1,4 @@
-package com.coco.boot.config;
+package com.coco.boot.config.web;
 
 import com.coco.boot.interceptor.ChatInterceptor;
 import org.springframework.context.annotation.Configuration;
