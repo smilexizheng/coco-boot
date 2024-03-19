@@ -17,6 +17,7 @@ import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.jetbrains.annotations.NotNull;
 import org.redisson.api.*;
+import org.redisson.api.map.event.EntryExpiredListener;
 import org.redisson.client.codec.StringCodec;
 import org.springframework.http.*;
 import org.springframework.stereotype.Service;
@@ -46,19 +47,6 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
     private final RedissonClient redissonClient;
 
     private final CoCoConfig coCoConfig;
-
-//    private static final HttpHeaders apiHeaders;
-//
-//    static {
-//        apiHeaders = new HttpHeaders();
-//        apiHeaders.set("Access-Control-Allow-Origin", "*");
-//        apiHeaders.set("Host", "api.cocopilot.com");
-//        apiHeaders.set("Editor-Version", "vscode/1.85.2");
-//        apiHeaders.set("Editor-Plugin-Version", "copilot-chat/0.11.1");
-//        apiHeaders.set("User-Agent", "GitHubCopilotChat/0.11.1");
-//        apiHeaders.set("Accept", "*/*");
-//        apiHeaders.set("Accept-Encoding", "gzip, deflate, br");
-//    }
 
     @Override
     public R<String> uploadGhu(String data) {
@@ -259,9 +247,32 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
                 atomicLong.incrementAndGet();
                 return response;
             } else {
-                // 异步移除，并添加到不可用key
                 ghuAliveKey.remove(ghu);
-                redissonClient.getSet(GHU_NO_ALIVE_KEY, StringCodec.INSTANCE).addAsync(ghu);
+                if (response.getStatusCode() == HttpStatus.TOO_MANY_REQUESTS) {
+                    String retryAfter = response.getHeaders().getFirst("x-ratelimit-user-retry-after");
+                    // 默认 600秒
+                    long time = 120;
+                    if (StringUtil.isNotBlank(retryAfter)) {
+                        try {
+                            time = Long.parseLong(retryAfter);
+                        } catch (NumberFormatException e) {}
+                    }
+
+                    if (time > 1000) {
+                        redissonClient.getSet(GHU_NO_ALIVE_KEY, StringCodec.INSTANCE).addAsync(ghu);
+                    } else {
+                        RMapCache<String, Integer> collingMap = redissonClient.getMapCache(GHU_COOLING_KEY);
+                        if (!collingMap.isExists()) {
+                            collingMap.addListener((EntryExpiredListener<String, Integer>) event -> {
+                                // expired key
+                                redissonClient.getSet(GHU_ALIVE_KEY, StringCodec.INSTANCE).add(event.getKey());
+                            });
+                        }
+                        collingMap.put(ghu, 1, time+5, TimeUnit.SECONDS);
+                    }
+                } else {
+                    redissonClient.getSet(GHU_NO_ALIVE_KEY, StringCodec.INSTANCE).addAsync(ghu);
+                }
                 i++;
             }
         }

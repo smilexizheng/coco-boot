@@ -49,10 +49,10 @@ coco:
   frequencyTime: ${COCO_FREQUENCY_TIME:1}
   #ghu频率数
   frequencyDegree: ${COCO_FREQUENCY_DEGREE:8}
-  #用户基础频率  5秒1次
+  #用户基础频率  5分钟10次
   userRateTime: ${COCO_USER_RATE_TIME:5}
   #用户基础频率数
-  userFrequencyDegree: ${COCO_USER_FREQUENCY_DEGREE:1}
+  userFrequencyDegree: ${COCO_USER_FREQUENCY_DEGREE:10}
   #用户token 有效期无请求接口 小时
   userTokenExpire: ${COCO_USER_TOKEN_EXPIRE:1}
   #允许用户的最低等级等级

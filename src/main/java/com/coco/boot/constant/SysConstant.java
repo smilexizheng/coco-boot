@@ -12,7 +12,7 @@ public interface SysConstant {
      */
     String GHU_ALIVE_KEY ="ghu_key:alive:";
     String GHU_NO_ALIVE_KEY ="ghu_key:noAlive:";
-    String GHU_COOLING_KEY ="ghu_key:cooling:";
+    String GHU_COOLING_KEY ="ghu_key:cooling:map";
 
     String GHU_RATE_LIMITER = "ghu-rate-limiter:";
     String USER_RATE_LIMITER = "user-rate-limiter:";
