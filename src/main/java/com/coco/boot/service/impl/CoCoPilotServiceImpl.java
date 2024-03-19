@@ -185,7 +185,7 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
         if (!rateLimiter.isExists()) {
             RateIntervalUnit timeUnit = RateIntervalUnit.MINUTES;
             rateLimiter.trySetRate(RateType.OVERALL, ((long) coCoConfig.getUserFrequencyDegree() * userInfo.getIntValue("trust_level")), coCoConfig.getUserRateTime(), timeUnit);
-            rateLimiter.expireAsync(Duration.ofMinutes(30));
+            rateLimiter.expireAsync(Duration.ofMinutes(coCoConfig.getUserRateTime()));
         }
 
         if (rateLimiter.tryAcquire()) {
@@ -275,7 +275,7 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
             if (!rateLimiter.isExists()) {
                 RateIntervalUnit timeUnit = RateIntervalUnit.SECONDS;
                 rateLimiter.trySetRate(RateType.OVERALL, coCoConfig.getFrequencyDegree(), coCoConfig.getFrequencyTime(), timeUnit);
-                rateLimiter.expireAsync(Duration.ofHours(2));
+                rateLimiter.expireAsync(Duration.ofSeconds(2));
             }
             if (rateLimiter.tryAcquire()) {
                 return ghu;
