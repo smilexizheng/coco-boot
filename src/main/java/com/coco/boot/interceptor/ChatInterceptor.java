@@ -17,9 +17,7 @@ import org.springframework.web.servlet.HandlerInterceptor;
 import java.io.IOException;
 import java.time.Duration;
 
-import static com.coco.boot.constant.SysConstant.GHU_ALIVE_KEY;
-import static com.coco.boot.constant.SysConstant.SYS_USER_ID;
-import static com.coco.boot.constant.SysConstant.USING_USER;
+import static com.coco.boot.constant.SysConstant.*;
 
 /**
  * @author Fengdong.Duan
@@ -31,17 +29,17 @@ public class ChatInterceptor implements HandlerInterceptor {
     private final CoCoConfig coCoConfig;
 
     public ChatInterceptor() {
-        this.redissonClient= SpringUtil.getBean(RedissonClient.class);
-        this.coCoConfig= SpringUtil.getBean(CoCoConfig.class);
+        this.redissonClient = SpringUtil.getBean(RedissonClient.class);
+        this.coCoConfig = SpringUtil.getBean(CoCoConfig.class);
     }
 
 
     /**
      * 拦截请求，检查请求头中的Authorization字段是否为有效的token，并判断token是否可用
      *
-     * @param request HTTP请求
+     * @param request  HTTP请求
      * @param response HTTP响应
-     * @param handler 处理器
+     * @param handler  处理器
      * @return 是否继续执行处理器
      * @throws Exception 异常信息
      */
@@ -85,8 +83,8 @@ public class ChatInterceptor implements HandlerInterceptor {
      * 设置HTTP响应的状态码和消息体
      *
      * @param response HTTP响应
-     * @param status 状态码
-     * @param msg 消息体
+     * @param status   状态码
+     * @param msg      消息体
      * @throws IOException IO异常
      */
     private void setResponse(HttpServletResponse response, int status, String msg) throws IOException {

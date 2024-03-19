@@ -1,10 +1,12 @@
 package com.coco.boot.task;
 
 import com.coco.boot.config.CoCoConfig;
-import jakarta.annotation.PostConstruct;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
-import org.redisson.api.*;
+import org.redisson.api.RAtomicLong;
+import org.redisson.api.RKeys;
+import org.redisson.api.RSet;
+import org.redisson.api.RedissonClient;
 import org.redisson.client.codec.StringCodec;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -35,8 +37,8 @@ public class CoCoTask {
      * 重置账号
      * 凌晨2点执行
      */
-//    @Scheduled(cron = "0 0 2 * * ?")  启动后，test()添加数据， 此定时任务 10秒后执行
-    @Scheduled(cron = "0/10 * * * * ?")
+    @Scheduled(cron = "0 0 2 * * ?")
+//    @Scheduled(cron = "0/10 * * * * ?")启动后，test()添加数据， 此定时任务 10秒后执行
     private void resetSomeThins() {
         RKeys keys = redissonClient.getKeys();
         //token 次数
@@ -52,8 +54,8 @@ public class CoCoTask {
      * 检查一下key吧
      * 凌晨1点执行
      */
-//    @Scheduled(cron = "0 0 1 * * ?")    启动后，test()添加数据， 此定时任务 10秒后执行
-    @Scheduled(cron = "0/10 * * * * ?")
+    @Scheduled(cron = "0 0 1 * * ?")
+//    @Scheduled(cron = "0/10 * * * * ?")启动后，test()添加数据， 此定时任务 10秒后执行
     private void checkSomeKey() {
         RSet<String> noAlive = redissonClient.getSet(GHU_NO_ALIVE_KEY, StringCodec.INSTANCE);
         RSet<String> alive = redissonClient.getSet(GHU_ALIVE_KEY, StringCodec.INSTANCE);
@@ -93,7 +95,7 @@ public class CoCoTask {
     /**
      * 添加测试数据
      */
-    @PostConstruct
+//    @PostConstruct  开启注解测试
     private void test() {
         //  TODO 测试通过后 删除此代码
         RSet<String> noAlive = redissonClient.getSet(GHU_NO_ALIVE_KEY, StringCodec.INSTANCE);
