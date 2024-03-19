@@ -28,5 +28,10 @@ public interface SysConstant {
     String USING_USER = "using:user:";
     String USING_GHU = "using:ghu:";
 
+    String COUNT_NO_ALIVE_KEY ="count:no-alive";
+
+    String CHECK_NO_ALIVE_KEY ="check:no-alive:";
+
+
 
 }
