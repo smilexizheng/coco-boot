@@ -55,4 +55,6 @@ coco:
   userFrequencyDegree: 10
   #用户token 有效期无请求接口 小时
   userTokenExpire: 1
+  #允许用户的最低等级等级
+  userLevel: 2
 

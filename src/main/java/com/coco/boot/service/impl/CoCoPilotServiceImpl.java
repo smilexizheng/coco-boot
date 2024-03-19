@@ -16,20 +16,9 @@ import jodd.util.StringUtil;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.jetbrains.annotations.NotNull;
-import org.redisson.api.RAtomicLong;
-import org.redisson.api.RBucket;
-import org.redisson.api.RRateLimiter;
-import org.redisson.api.RSet;
-import org.redisson.api.RateIntervalUnit;
-import org.redisson.api.RateType;
-import org.redisson.api.RedissonClient;
+import org.redisson.api.*;
 import org.redisson.client.codec.StringCodec;
-import org.springframework.http.HttpEntity;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpMethod;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.MediaType;
-import org.springframework.http.ResponseEntity;
+import org.springframework.http.*;
 import org.springframework.stereotype.Service;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
@@ -43,14 +32,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
-import static com.coco.boot.constant.SysConstant.GHU_ALIVE_KEY;
-import static com.coco.boot.constant.SysConstant.GHU_NO_ALIVE_KEY;
-import static com.coco.boot.constant.SysConstant.GHU_RATE_LIMITER;
-import static com.coco.boot.constant.SysConstant.LINUX_DO_USER_ID;
-import static com.coco.boot.constant.SysConstant.SYS_USER_ID;
-import static com.coco.boot.constant.SysConstant.TOKEN_STATE;
-import static com.coco.boot.constant.SysConstant.USER_RATE_LIMITER;
-import static com.coco.boot.constant.SysConstant.USING_GHU;
+import static com.coco.boot.constant.SysConstant.*;
 import static org.springframework.http.HttpStatus.FORBIDDEN;
 
 @AllArgsConstructor
@@ -89,7 +71,6 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
         // 处理数据换行
         String[] ghuArray = data.split("%0A|\\r?\\n");
         RSet<String> ghus = redissonClient.getSet(GHU_ALIVE_KEY, StringCodec.INSTANCE);
-        RSet<String> noAliveGhus = redissonClient.getSet(GHU_NO_ALIVE_KEY, StringCodec.INSTANCE);
 
         for (String ghu : ghuArray) {
             if (!ghu.startsWith("gh")) {
@@ -106,21 +87,18 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
             httpHeaders.set("Authorization", "token " + ghu);
             //存活校验
             HttpEntity<MultiValueMap<String, Object>> requestEntity = new HttpEntity<>(httpHeaders);
-            try {
-                ResponseEntity<String> response = rest.exchange(coCoConfig.getBaseApi(), HttpMethod.GET, requestEntity, String.class);
 
-                if (response.getStatusCode().is2xxSuccessful()) {
-                    map.put(ghu, "存活");
-                    ghus.add(ghu);//
-                } else {
-                    map.put(ghu, "失效");
-                    noAliveGhus.add(ghu);
-                    log.warn("upload 存活校验失效: {}", ghu);
-                }
-            } catch (Exception e) {
+            ResponseEntity<JSONObject> response = rest.exchange(coCoConfig.getBaseApi(), HttpMethod.GET, requestEntity, JSONObject.class);
+
+            if (response.getStatusCode() == HttpStatus.UNAUTHORIZED || response.getStatusCode() == HttpStatus.FORBIDDEN) {
                 map.put(ghu, "失效");
-                noAliveGhus.add(ghu);
                 log.warn("upload 存活校验失效: {}", ghu);
+            } else if (response.getStatusCode() == HttpStatus.TOO_MANY_REQUESTS) {
+                Integer retry = Integer.valueOf(response.getHeaders().get(HEADER_RETRY).get(0));
+                log.info("upload 存活校验限流: {}, 返回: {}", ghu, response.getBody());
+            } else {
+                map.put(ghu, "存活");
+                ghus.add(ghu);
             }
         }
         return R.success("操作完成", map.toString());
@@ -149,59 +127,63 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
             return ResponseEntity.status(FORBIDDEN).build();
         }
         bucket.delete();
-        try {
-            String auth = "Basic " + Base64.encode(coCoConfig.getClientId() + ':' + coCoConfig.getClientSecret());
-
-            // 构造请求 body
-            HttpHeaders headers = new HttpHeaders();
-            headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
-            headers.set("Authorization", auth);
-
-            MultiValueMap<String, String> requestBody = new LinkedMultiValueMap<>();
-            requestBody.add("grant_type", "authorization_code");
-            requestBody.add("code", code);
-            requestBody.add("redirect_uri", coCoConfig.getRedirectUri());
-
-            // 发送请求并解析响应
-            ResponseEntity<JSONObject> response = rest.postForEntity(coCoConfig.getTokenEndpoint(), new HttpEntity<>(requestBody, headers), JSONObject.class);
-
-            JSONObject tokenData = response.getBody();
-            assert tokenData != null;
-            String accessToken = tokenData.getString("access_token");
-            if (StringUtil.isBlank(accessToken)) {
-                return new ResponseEntity<>("Error fetching token", HttpStatus.INTERNAL_SERVER_ERROR);
-            }
 
 
-            // 使用 access_token 获取用户信息
-            HttpHeaders userInfoHeaders = new HttpHeaders();
-            userInfoHeaders.setBearerAuth(accessToken);
-            ResponseEntity<JSONObject> responseEntity = rest.exchange(coCoConfig.getUserEndpoint(), HttpMethod.GET, new HttpEntity<>(userInfoHeaders), JSONObject.class);
-            JSONObject userInfo = responseEntity.getBody();
-            assert userInfo != null;
-            String userId = userInfo.getString("id");
+        String auth = "Basic " + Base64.encode(coCoConfig.getClientId() + ':' + coCoConfig.getClientSecret());
 
+        // 构造请求 body
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
+        headers.set("Authorization", auth);
 
-            // 检测用户信息         0级用户直接ban
-            int trustLevel = userInfo.getIntValue("trust_level");
-            boolean active = userInfo.getBooleanValue("active");
-            if (!active || trustLevel < 1) {
-                log.warn("{} trust_level is 0 or  is not active ", userId);
-                return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("Your trust_level is 0 or  is not active ");
-            }
+        MultiValueMap<String, String> requestBody = new LinkedMultiValueMap<>();
+        requestBody.add("grant_type", "authorization_code");
+        requestBody.add("code", code);
+        requestBody.add("redirect_uri", coCoConfig.getRedirectUri());
 
-            String userInfoJsonString = JSON.toJSONString(userInfo);
-            RBucket<String> users = redissonClient.getBucket(LINUX_DO_USER_ID + userId);
-            users.set(userInfoJsonString);
-            //虚拟本系统用户信息- 通过此获取到linux userId ，继而可以获取 linux的tokens
-            String token = IdUtil.simpleUUID();
-            RBucket<String> cocoAuth = redissonClient.getBucket(SYS_USER_ID + token);
-            cocoAuth.set(userInfoJsonString, Duration.ofHours(coCoConfig.getUserTokenExpire()));
-            return new ResponseEntity<>("{\"message\": \"Token Get Success\", \"data\": \"" + token + "\"}", HttpStatus.OK);
-        } catch (Exception e) {
-            log.error("获取Token失败",e);
+        // 发送请求并解析响应
+        ResponseEntity<JSONObject> response = rest.postForEntity(coCoConfig.getTokenEndpoint(), new HttpEntity<>(requestBody, headers), JSONObject.class);
+        if (response.getStatusCode() != HttpStatus.OK) {
+            log.error("获取Token失败");
             return new ResponseEntity<>("{\"message\": \"Token Get Error\", \"data\": \"\"}", HttpStatus.INTERNAL_SERVER_ERROR);
         }
+        JSONObject tokenData = response.getBody();
+        assert tokenData != null;
+        String accessToken = tokenData.getString("access_token");
+        if (StringUtil.isBlank(accessToken)) {
+            return new ResponseEntity<>("Error fetching token", HttpStatus.INTERNAL_SERVER_ERROR);
+        }
+
+
+        // 使用 access_token 获取用户信息
+        HttpHeaders userInfoHeaders = new HttpHeaders();
+        userInfoHeaders.setBearerAuth(accessToken);
+        ResponseEntity<JSONObject> responseEntity = rest.exchange(coCoConfig.getUserEndpoint(), HttpMethod.GET, new HttpEntity<>(userInfoHeaders), JSONObject.class);
+        if (responseEntity.getStatusCode() != HttpStatus.OK) {
+            log.error("获取用户信息失败");
+            return new ResponseEntity<>("{\"message\": \"User Info Get Error\", \"data\": \"\"}", HttpStatus.INTERNAL_SERVER_ERROR);
+        }
+        JSONObject userInfo = responseEntity.getBody();
+        assert userInfo != null;
+        String userId = userInfo.getString("id");
+
+
+        // 检测用户信息         0级用户直接ban
+        int trustLevel = userInfo.getIntValue("trust_level");
+        boolean active = userInfo.getBooleanValue("active");
+        if (!active || trustLevel < coCoConfig.getUserLevel()) {
+            log.warn("{} trust_level is 0 or  is not active ", userId);
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("Your trust_level is 0 or  is not active ");
+        }
+
+        String userInfoJsonString = JSON.toJSONString(userInfo);
+        RBucket<String> users = redissonClient.getBucket(LINUX_DO_USER_ID + userId);
+        users.set(userInfoJsonString);
+        //虚拟本系统用户信息- 通过此获取到linux userId ，继而可以获取 linux的tokens
+        String token = IdUtil.simpleUUID();
+        RBucket<String> cocoAuth = redissonClient.getBucket(SYS_USER_ID + token);
+        cocoAuth.set(userInfoJsonString, Duration.ofHours(coCoConfig.getUserTokenExpire()));
+        return new ResponseEntity<>("{\"message\": \"Token Get Success\", \"data\": \"" + token + "\"}", HttpStatus.OK);
     }
 
 
@@ -251,8 +233,7 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
         if (!ghuAliveKey.isExists()) {
             return ResponseEntity.ok("{\"message\": \"No keys\"}");
         }
-        ResponseEntity<String> response = getBaseProxyResponse(requestBody, path, ghuAliveKey);
-        return response;
+        return getBaseProxyResponse(requestBody, path, ghuAliveKey);
     }
 
     @NotNull
