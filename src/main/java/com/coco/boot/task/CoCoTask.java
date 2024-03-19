@@ -85,7 +85,7 @@ public class CoCoTask {
                 log.error("check 校验异常", e);
             }
             if (num > 10) {
-                noAliveNum.incrementAndGetAsync();
+                noAliveNum.deleteAsync();
                 noAlive.removeAsync(key);
             }
 
