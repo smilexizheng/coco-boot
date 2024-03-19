@@ -63,7 +63,6 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
         // 处理数据换行
         String[] ghuArray = data.split("%0A|\\r?\\n");
         RSet<String> ghus = redissonClient.getSet(GHU_ALIVE_KEY, StringCodec.INSTANCE);
-        RSet<String> noAliveGhus = redissonClient.getSet(GHU_NO_ALIVE_KEY, StringCodec.INSTANCE);
 
         for (String ghu : ghuArray) {
             if (!ghu.startsWith("gh")) {
@@ -83,15 +82,16 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
 
             ResponseEntity<JSONObject> response = rest.exchange(coCoConfig.getBaseApi(), HttpMethod.GET, requestEntity, JSONObject.class);
 
-            if (response.getStatusCode() == HttpStatus.UNAUTHORIZED || response.getStatusCode() == HttpStatus.FORBIDDEN) {
-                map.put(ghu, "失效");
-                log.warn("upload 存活校验失效: {}", ghu);
+
+            if (response.getStatusCode().is2xxSuccessful()) {
+                map.put(ghu, "存活");
+                ghus.add(ghu);
             } else if (response.getStatusCode() == HttpStatus.TOO_MANY_REQUESTS) {
                 Integer retry = Integer.valueOf(response.getHeaders().get(HEADER_RETRY).get(0));
                 log.info("upload 存活校验限流: {}, 返回: {}", ghu, response.getBody());
-            } else if (response.getStatusCode().is2xxSuccessful()){
-                map.put(ghu, "存活");
-                ghus.add(ghu);
+            } else {
+                map.put(ghu, "失效");
+                log.warn("upload 存活校验失效: {}", ghu);
             }
         }
         return R.success("操作完成", map.toString());
@@ -148,29 +148,29 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
         }
 
 
-            // 使用 access_token 获取用户信息
-            HttpHeaders userInfoHeaders = new HttpHeaders();
-            userInfoHeaders.setBearerAuth(accessToken);
-            ResponseEntity<JSONObject> responseEntity = rest.exchange(coCoConfig.getUserEndpoint(), HttpMethod.GET, new HttpEntity<>(userInfoHeaders), JSONObject.class);
-            JSONObject userInfo = responseEntity.getBody();
-            assert userInfo != null;
-            String userId = userInfo.getString("id");
-            //登陆次数
-            RAtomicLong getTokenNum = redissonClient.getAtomicLong(RC_GET_TOKEN_NUM + userId);
-            long l = getTokenNum.incrementAndGet();
-            if (l > rcConfig.getGetTokenNum()) {
-                return new ResponseEntity<>("You Can Try again tomorrow", HttpStatus.UNAUTHORIZED);
-            }
+        // 使用 access_token 获取用户信息
+        HttpHeaders userInfoHeaders = new HttpHeaders();
+        userInfoHeaders.setBearerAuth(accessToken);
+        ResponseEntity<JSONObject> responseEntity = rest.exchange(coCoConfig.getUserEndpoint(), HttpMethod.GET, new HttpEntity<>(userInfoHeaders), JSONObject.class);
+        JSONObject userInfo = responseEntity.getBody();
+        assert userInfo != null;
+        String userId = userInfo.getString("id");
+        //登陆次数
+        RAtomicLong getTokenNum = redissonClient.getAtomicLong(RC_GET_TOKEN_NUM + userId);
+        long l = getTokenNum.incrementAndGet();
+        if (l > rcConfig.getGetTokenNum()) {
+            return new ResponseEntity<>("You Can Try again tomorrow", HttpStatus.UNAUTHORIZED);
+        }
 
-            //检查是否禁止访问
-            RBucket<Boolean> ban = redissonClient.getBucket(RC_BAN + userId);
-            if (ban.isExists()) {
-                return new ResponseEntity<>("You have been banned", HttpStatus.UNAUTHORIZED);
-            }
-            RBucket<Boolean> tempBan = redissonClient.getBucket(RC_TEMPORARY_BAN + userId);
-            if (tempBan.isExists()) {
-                return new ResponseEntity<>("You have been marked, please try again in a few hours", HttpStatus.UNAUTHORIZED);
-            }
+        //检查是否禁止访问
+        RBucket<Boolean> ban = redissonClient.getBucket(RC_BAN + userId);
+        if (ban.isExists()) {
+            return new ResponseEntity<>("You have been banned", HttpStatus.UNAUTHORIZED);
+        }
+        RBucket<Boolean> tempBan = redissonClient.getBucket(RC_TEMPORARY_BAN + userId);
+        if (tempBan.isExists()) {
+            return new ResponseEntity<>("You have been marked, please try again in a few hours", HttpStatus.UNAUTHORIZED);
+        }
 
 
         // 检测用户信息         0级用户直接ban
