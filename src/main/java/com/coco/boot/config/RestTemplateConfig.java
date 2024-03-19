@@ -48,6 +48,8 @@ public class RestTemplateConfig {
         //restTemplate.setMessageConverters(...);
         // 可以增加拦截器
         //restTemplate.setInterceptors(...);
+        // 自定义异常
+        restTemplate.setErrorHandler(new RestErrorHandler());
         log.info("RestTemplate OkHttpClient starting...");
         return restTemplate;
     }

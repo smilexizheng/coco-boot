@@ -15,6 +15,7 @@ import com.coco.boot.service.CoCoPilotService;
 import jodd.util.StringUtil;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.jetbrains.annotations.NotNull;
 import org.redisson.api.RAtomicLong;
 import org.redisson.api.RBucket;
 import org.redisson.api.RRateLimiter;
@@ -50,7 +51,6 @@ import static com.coco.boot.constant.SysConstant.SYS_USER_ID;
 import static com.coco.boot.constant.SysConstant.TOKEN_STATE;
 import static com.coco.boot.constant.SysConstant.USER_RATE_LIMITER;
 import static com.coco.boot.constant.SysConstant.USING_GHU;
-import static com.coco.boot.constant.SysConstant.USING_USER;
 import static org.springframework.http.HttpStatus.FORBIDDEN;
 
 @AllArgsConstructor
@@ -106,11 +106,10 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
             httpHeaders.set("Authorization", "token " + ghu);
             //存活校验
             HttpEntity<MultiValueMap<String, Object>> requestEntity = new HttpEntity<>(httpHeaders);
-
             try {
-                ResponseEntity<JSONObject> response = rest.exchange(coCoConfig.getBaseApi() + "/copilot_internal/v2/token", HttpMethod.GET, requestEntity, JSONObject.class);
+                ResponseEntity<String> response = rest.exchange(coCoConfig.getBaseApi(), HttpMethod.GET, requestEntity, String.class);
 
-                if (response.getStatusCode() == HttpStatus.OK) {
+                if (response.getStatusCode().is2xxSuccessful()) {
                     map.put(ghu, "存活");
                     ghus.add(ghu);//
                 } else {
@@ -150,66 +149,65 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
             return ResponseEntity.status(FORBIDDEN).build();
         }
         bucket.delete();
+        try {
+            String auth = "Basic " + Base64.encode(coCoConfig.getClientId() + ':' + coCoConfig.getClientSecret());
+
+            // 构造请求 body
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
+            headers.set("Authorization", auth);
+
+            MultiValueMap<String, String> requestBody = new LinkedMultiValueMap<>();
+            requestBody.add("grant_type", "authorization_code");
+            requestBody.add("code", code);
+            requestBody.add("redirect_uri", coCoConfig.getRedirectUri());
+
+            // 发送请求并解析响应
+            ResponseEntity<JSONObject> response = rest.postForEntity(coCoConfig.getTokenEndpoint(), new HttpEntity<>(requestBody, headers), JSONObject.class);
+
+            JSONObject tokenData = response.getBody();
+            assert tokenData != null;
+            String accessToken = tokenData.getString("access_token");
+            if (StringUtil.isBlank(accessToken)) {
+                return new ResponseEntity<>("Error fetching token", HttpStatus.INTERNAL_SERVER_ERROR);
+            }
 
 
-        String auth = "Basic " + Base64.encode(coCoConfig.getClientId() + ':' + coCoConfig.getClientSecret());
+            // 使用 access_token 获取用户信息
+            HttpHeaders userInfoHeaders = new HttpHeaders();
+            userInfoHeaders.setBearerAuth(accessToken);
+            ResponseEntity<JSONObject> responseEntity = rest.exchange(coCoConfig.getUserEndpoint(), HttpMethod.GET, new HttpEntity<>(userInfoHeaders), JSONObject.class);
+            JSONObject userInfo = responseEntity.getBody();
+            assert userInfo != null;
+            String userId = userInfo.getString("id");
 
-        // 构造请求 body
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
-        headers.set("Authorization", auth);
 
-        MultiValueMap<String, String> requestBody = new LinkedMultiValueMap<>();
-        requestBody.add("grant_type", "authorization_code");
-        requestBody.add("code", code);
-        requestBody.add("redirect_uri", coCoConfig.getRedirectUri());
+            // 检测用户信息         0级用户直接ban
+            int trustLevel = userInfo.getIntValue("trust_level");
+            boolean active = userInfo.getBooleanValue("active");
+            if (!active || trustLevel < 1) {
+                log.warn("{} trust_level is 0 or  is not active ", userId);
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("Your trust_level is 0 or  is not active ");
+            }
 
-        // 发送请求并解析响应
-        ResponseEntity<JSONObject> response = rest.postForEntity(coCoConfig.getTokenEndpoint(), new HttpEntity<>(requestBody, headers), JSONObject.class);
-
-        JSONObject tokenData = response.getBody();
-        assert tokenData != null;
-        String accessToken = tokenData.getString("access_token");
-        if (StringUtil.isBlank(accessToken)) {
-            return new ResponseEntity<>("Error fetching token", HttpStatus.INTERNAL_SERVER_ERROR);
+            String userInfoJsonString = JSON.toJSONString(userInfo);
+            RBucket<String> users = redissonClient.getBucket(LINUX_DO_USER_ID + userId);
+            users.set(userInfoJsonString);
+            //虚拟本系统用户信息- 通过此获取到linux userId ，继而可以获取 linux的tokens
+            String token = IdUtil.simpleUUID();
+            RBucket<String> cocoAuth = redissonClient.getBucket(SYS_USER_ID + token);
+            cocoAuth.set(userInfoJsonString, Duration.ofHours(coCoConfig.getUserTokenExpire()));
+            return new ResponseEntity<>("{\"message\": \"Token Get Success\", \"data\": \"" + token + "\"}", HttpStatus.OK);
+        } catch (Exception e) {
+            log.error("获取Token失败",e);
+            return new ResponseEntity<>("{\"message\": \"Token Get Error\", \"data\": \"\"}", HttpStatus.INTERNAL_SERVER_ERROR);
         }
-
-
-        // 使用 access_token 获取用户信息
-        HttpHeaders userInfoHeaders = new HttpHeaders();
-        userInfoHeaders.setBearerAuth(accessToken);
-        ResponseEntity<JSONObject> responseEntity = rest.exchange(coCoConfig.getUserEndpoint(), HttpMethod.GET, new HttpEntity<>(userInfoHeaders), JSONObject.class);
-        JSONObject userInfo = responseEntity.getBody();
-        assert userInfo != null;
-        String userId = userInfo.getString("id");
-
-
-
-        // 检测用户信息         0级用户直接ban
-        int trustLevel = userInfo.getIntValue("trust_level");
-        boolean active = userInfo.getBooleanValue("active");
-        if (!active || trustLevel < 1) {
-            log.warn("{} trust_level is 0 or  is not active ", userId);
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("Your trust_level is 0 or  is not active ");
-        }
-
-        String userInfoJsonString = JSON.toJSONString(userInfo);
-        RBucket<String> users = redissonClient.getBucket(LINUX_DO_USER_ID + userId);
-        users.set(userInfoJsonString);
-        //虚拟本系统用户信息- 通过此获取到linux userId ，继而可以获取 linux的tokens
-        String token = IdUtil.simpleUUID();
-        RBucket<String> cocoAuth = redissonClient.getBucket(SYS_USER_ID + token);
-        cocoAuth.set(userInfoJsonString, Duration.ofHours(coCoConfig.getUserTokenExpire()));
-        return new ResponseEntity<>("{\"message\": \"Token Get Success\", \"data\": \"" + token + "\"}", HttpStatus.OK);
     }
 
 
     @Override
     public ResponseEntity<String> chat(Conversation requestBody, String auth, String path) {
-
-
         JSONObject userInfo = ChatInterceptor.tl.get();
-
         String userId = userInfo.getString("id");
         // 根据用户信任级别限流
         RRateLimiter rateLimiter = redissonClient.getRateLimiter(USER_RATE_LIMITER + userId);
@@ -253,42 +251,41 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
         if (!ghuAliveKey.isExists()) {
             return ResponseEntity.ok("{\"message\": \"No keys\"}");
         }
-
-        String ghu = getGhu(ghuAliveKey);
-        if (StringUtil.isBlank(ghu)) {
-            return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body("{\"message\": \"Rate limit,The server is under great pressure\"}");
-        }
-        log.info("{}可用令牌数量，当前选择{}", ghuAliveKey.size(), ghu);
-
-
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_JSON);
-        headers.set("Authorization", "Bearer " + ghu);
-        StopWatch sw = new StopWatch();
-        sw.start("进入代理");
-
-        ResponseEntity<String> response = rest.postForEntity(coCoConfig.getBaseProxy() + path, new HttpEntity<>(requestBody, headers), String.class);
-
-        sw.stop();
-        log.info(sw.prettyPrint(TimeUnit.SECONDS));
-        // 429被限制
-        if (response.getStatusCode() == HttpStatus.TOO_MANY_REQUESTS) {
-            // 异步移除，并添加到不可用key
-            ghuAliveKey.removeAsync(ghu);
-            RSet<String> ghuNoAliveKey = redissonClient.getSet(GHU_NO_ALIVE_KEY, StringCodec.INSTANCE);
-
-            ghuNoAliveKey.addAsync(ghu);
-            //重写响应
-            return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body("{\"message\": \"Rate limit\"}");
-        }
-        //ghu使用成功次数
-        RAtomicLong atomicLong = redissonClient.getAtomicLong(USING_GHU + ghu);
-        atomicLong.incrementAndGet();
+        ResponseEntity<String> response = getBaseProxyResponse(requestBody, path, ghuAliveKey);
         return response;
+    }
 
-//        临时全部返回成功
-//        return ResponseEntity.status(HttpStatus.OK).body("{\"message\": \"OK\"}");
+    @NotNull
+    private ResponseEntity<String> getBaseProxyResponse(Object requestBody, String path, RSet<String> ghuAliveKey) {
+        int i = 0;
+        while (i < 2) {
+            String ghu = getGhu(ghuAliveKey);
+            if (StringUtil.isBlank(ghu)) {
+                return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body("{\"message\": \"Rate limit,The server is under great pressure\"}");
+            }
+            log.info("{}可用令牌数量，当前选择{}", ghuAliveKey.size(), ghu);
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+            headers.set("Authorization", "Bearer " + ghu);
+            StopWatch sw = new StopWatch();
+            sw.start("进入代理");
+            ResponseEntity<String> response = rest.postForEntity(coCoConfig.getBaseProxy() + path, new HttpEntity<>(requestBody, headers), String.class);
+            sw.stop();
+            log.info(sw.prettyPrint(TimeUnit.SECONDS));
+            if (response.getStatusCode().is2xxSuccessful()) {
+                //ghu使用成功次数
+                RAtomicLong atomicLong = redissonClient.getAtomicLong(USING_GHU + ghu);
+                atomicLong.incrementAndGet();
+                return response;
+            } else {
+                // 异步移除，并添加到不可用key
+                ghuAliveKey.remove(ghu);
+                redissonClient.getSet(GHU_NO_ALIVE_KEY, StringCodec.INSTANCE).addAsync(ghu);
+                i++;
+            }
+        }
 
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body("{\"message\": \"Too Many Requests\"}");
     }
 
 
