@@ -250,26 +250,24 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
                 ghuAliveKey.remove(ghu);
                 if (response.getStatusCode() == HttpStatus.TOO_MANY_REQUESTS) {
                     String retryAfter = response.getHeaders().getFirst("x-ratelimit-user-retry-after");
-                    // 默认 600秒
-                    long time = 120;
+                    // 默认 600秒 等待此 ghu 恢复
+                    long time = 600;
                     if (StringUtil.isNotBlank(retryAfter)) {
+                        //如果返回中指明时间，则使用这个时间
                         try {
                             time = Long.parseLong(retryAfter);
-                        } catch (NumberFormatException e) {}
-                    }
-
-                    if (time > 1000) {
-                        redissonClient.getSet(GHU_NO_ALIVE_KEY, StringCodec.INSTANCE).addAsync(ghu);
-                    } else {
-                        RMapCache<String, Integer> collingMap = redissonClient.getMapCache(GHU_COOLING_KEY);
-                        if (!collingMap.isExists()) {
-                            collingMap.addListener((EntryExpiredListener<String, Integer>) event -> {
-                                // expired key
-                                redissonClient.getSet(GHU_ALIVE_KEY, StringCodec.INSTANCE).add(event.getKey());
-                            });
+                        } catch (NumberFormatException e) {
                         }
-                        collingMap.put(ghu, 1, time+5, TimeUnit.SECONDS);
                     }
+                    RMapCache<String, Integer> collingMap = redissonClient.getMapCache(GHU_COOLING_KEY);
+                    if (!collingMap.isExists()) {
+                        collingMap.addListener((EntryExpiredListener<String, Integer>) event -> {
+                            // expired key
+                            redissonClient.getSet(GHU_ALIVE_KEY, StringCodec.INSTANCE).add(event.getKey());
+                        });
+                    }
+                    //在一定时间后将 ghu 重新加入到可用列表
+                    collingMap.put(ghu, 1, time + 5, TimeUnit.SECONDS);
                 } else {
                     redissonClient.getSet(GHU_NO_ALIVE_KEY, StringCodec.INSTANCE).addAsync(ghu);
                 }
