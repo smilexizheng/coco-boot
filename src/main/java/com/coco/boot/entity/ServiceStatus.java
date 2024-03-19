@@ -11,9 +11,10 @@ import java.io.Serializable;
 @AllArgsConstructor
 public class ServiceStatus implements Serializable {
 
-    private Integer ghuCount;
-    private Integer ghuAliveCount;
-    private Integer ghuNoAliveCount;
+    private Long ghuCount;
+    private Integer aliveCount;
+    private Integer noAliveCount;
+    private Long noAliveTotal;
 
 
 

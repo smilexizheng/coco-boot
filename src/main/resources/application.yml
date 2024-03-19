@@ -52,9 +52,28 @@ coco:
   #用户基础频率  5分钟10次
   userRateTime: 5
   #用户基础频率数
-  userFrequencyDegree: 10
+  userFrequencyDegree: 15
   #用户token 有效期无请求接口 小时
   userTokenExpire: 1
   #允许用户的最低等级等级
   userLevel: 2
+
+
+#以下为风控参数
+risk-contr:
+  # 一个账号 一天能获取多少次Token
+  getTokenNum: 10
+  #单token 成功请求的最大数量 * 倍率 token失效
+  tokenMaxReq: 500
+  #每天用户最大请求数量 *倍率  限制 10小时 不可登陆
+  userMaxReq: 2000
+  userMaxTime: 10
+  #超出用户最大访问速率
+  #10次 该用户访问频率为  基础 * 0.5倍
+  tokenInvalidNum: 10
+  #30次  token失效  2小时不可登陆
+  rejectTimeNum: 30
+  rejectTime: 2
+  #ban级别  触发 5 次上面 reject 限制 封号
+  banNum: 5
 

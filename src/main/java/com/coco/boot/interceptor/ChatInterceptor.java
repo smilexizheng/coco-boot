@@ -63,6 +63,7 @@ public class ChatInterceptor implements HandlerInterceptor {
             }
             bucket.expireAsync(Duration.ofHours(coCoConfig.getUserTokenExpire()));
             JSONObject userInfo = JSON.parseObject(bucket.get());
+
             tl.set(userInfo);
             return true;
         }

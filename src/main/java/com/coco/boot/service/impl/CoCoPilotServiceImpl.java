@@ -8,6 +8,7 @@ import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONObject;
 import com.coco.boot.common.R;
 import com.coco.boot.config.CoCoConfig;
+import com.coco.boot.config.RiskContrConfig;
 import com.coco.boot.entity.ServiceStatus;
 import com.coco.boot.interceptor.ChatInterceptor;
 import com.coco.boot.pojo.Conversation;
@@ -21,6 +22,7 @@ import org.redisson.api.map.event.EntryExpiredListener;
 import org.redisson.client.codec.StringCodec;
 import org.springframework.http.*;
 import org.springframework.stereotype.Service;
+import org.springframework.util.DigestUtils;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 import org.springframework.util.StringUtils;
@@ -33,6 +35,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
+import static com.coco.boot.constant.RiskContrConstant.*;
 import static com.coco.boot.constant.SysConstant.*;
 import static org.springframework.http.HttpStatus.FORBIDDEN;
 
@@ -47,6 +50,7 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
     private final RedissonClient redissonClient;
 
     private final CoCoConfig coCoConfig;
+    private final RiskContrConfig rcConfig;
 
     @Override
     public R<String> uploadGhu(String data) {
@@ -155,6 +159,22 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
         JSONObject userInfo = responseEntity.getBody();
         assert userInfo != null;
         String userId = userInfo.getString("id");
+        //登陆次数
+        RAtomicLong getTokenNum = redissonClient.getAtomicLong(RC_GET_TOKEN_NUM + userId);
+        long l = getTokenNum.incrementAndGet();
+        if (l > rcConfig.getGetTokenNum()) {
+            return new ResponseEntity<>("You Can Try again tomorrow", HttpStatus.UNAUTHORIZED);
+        }
+
+        //检查是否禁止访问
+        RBucket<Boolean> ban = redissonClient.getBucket(RC_BAN + userId);
+        if (ban.isExists()) {
+            return new ResponseEntity<>("You have been banned", HttpStatus.UNAUTHORIZED);
+        }
+        RBucket<Boolean> tempBan = redissonClient.getBucket(RC_TEMPORARY_BAN + userId);
+        if (tempBan.isExists()) {
+            return new ResponseEntity<>("You have been marked, please try again in a few hours", HttpStatus.UNAUTHORIZED);
+        }
 
 
         // 检测用户信息         0级用户直接ban
@@ -179,21 +199,52 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
     @Override
     public ResponseEntity<String> chat(Conversation requestBody, String auth, String path) {
         JSONObject userInfo = ChatInterceptor.tl.get();
+        auth = auth.substring("Bearer ".length());
         String userId = userInfo.getString("id");
+        int trustLevel = userInfo.getIntValue("trust_level");
+
+
         // 根据用户信任级别限流
         RRateLimiter rateLimiter = redissonClient.getRateLimiter(USER_RATE_LIMITER + userId);
         if (!rateLimiter.isExists()) {
-            RateIntervalUnit timeUnit = RateIntervalUnit.MINUTES;
-            rateLimiter.trySetRate(RateType.OVERALL, ((long) coCoConfig.getUserFrequencyDegree() * userInfo.getIntValue("trust_level")), coCoConfig.getUserRateTime(), timeUnit);
-            rateLimiter.expireAsync(Duration.ofMinutes(coCoConfig.getUserRateTime()));
+            rateLimiter.trySetRate(RateType.OVERALL, ((long) coCoConfig.getUserFrequencyDegree() * trustLevel), coCoConfig.getUserRateTime(), RateIntervalUnit.MINUTES);
+            rateLimiter.expireAsync(Duration.ofHours(coCoConfig.getUserTokenExpire()));
         }
-
+        String tokenKey = DigestUtils.md5DigestAsHex((auth + userId).getBytes());
         if (rateLimiter.tryAcquire()) {
             // 调用 handleProxy 方法并获取响应
             ResponseEntity<String> response = handleProxy(requestBody, path);
+            if (response.getStatusCode().is2xxSuccessful()) {
+                //成功访问
+                long tokenSuccess = redissonClient.getAtomicLong(RC_TOKEN_SUCCESS_REQ + tokenKey).incrementAndGet();
+                if (tokenSuccess > ((long) rcConfig.getTokenMaxReq() * trustLevel)) {
+                    redissonClient.getBucket(SYS_USER_ID + auth).deleteAsync();
+                }
+                long userSuccess = redissonClient.getAtomicLong(RC_USER_SUCCESS_REQ + userId).incrementAndGet();
+                if (userSuccess > ((long) rcConfig.getUserMaxReq() * trustLevel)) {
+                    redissonClient.getBucket(RC_TEMPORARY_BAN + userId).set(true, Duration.ofHours(rcConfig.getUserMaxTime()));
+                }
+
+            }
             return ResponseEntity.status(response.getStatusCode()).body(response.getBody());
         } else {
-            log.warn("用户ID:{}，trustLevel:{}，token:{}被限流使用", userId, userInfo.getIntValue("trust_level"), auth.substring("Bearer ".length()));
+            long l = redissonClient.getAtomicLong(RC_USER_TOKEN_LIMIT_NUM + tokenKey).incrementAndGet();
+            RAtomicLong userLimit = redissonClient.getAtomicLong(RC_USER_LIMIT_NUM + userId);
+            if (l > rcConfig.getRejectTimeNum()) {
+                userLimit.incrementAndGet();
+                redissonClient.getBucket(SYS_USER_ID + auth).deleteAsync();
+                redissonClient.getBucket(RC_TEMPORARY_BAN + userId).set(true, Duration.ofHours(rcConfig.getRejectTime()));
+            } else if (l >= rcConfig.getTokenInvalidNum() && l <= rcConfig.getRejectTimeNum()) {
+                rateLimiter.trySetRate(RateType.OVERALL, ((long) (coCoConfig.getUserFrequencyDegree() * 0.5)), coCoConfig.getUserRateTime(), RateIntervalUnit.MINUTES);
+            }
+
+            if (userLimit.isExists() && userLimit.get() > rcConfig.getBanNum()) {
+                redissonClient.getBucket(SYS_USER_ID + auth).deleteAsync();
+                redissonClient.getBucket(RC_BAN + userId).set(true);
+            }
+
+
+            log.warn("用户ID:{}，trustLevel:{}，token:{}被限流使用", userId, trustLevel, auth);
             return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body("Your Rate limit");
         }
 
@@ -204,9 +255,11 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
         ServiceStatus status = new ServiceStatus();
         int aliveCount = redissonClient.getSet(GHU_ALIVE_KEY, StringCodec.INSTANCE).size();
         int noAliveCount = redissonClient.getSet(GHU_NO_ALIVE_KEY, StringCodec.INSTANCE).size();
-        status.setGhuAliveCount(aliveCount);
-        status.setGhuNoAliveCount(noAliveCount);
-        status.setGhuCount(aliveCount + noAliveCount);
+        long noAliveTotal = redissonClient.getAtomicLong(COUNT_NO_ALIVE_KEY).get();
+        status.setAliveCount(aliveCount);
+        status.setNoAliveCount(noAliveCount);
+        status.setNoAliveTotal(noAliveTotal);
+        status.setGhuCount(aliveCount + noAliveCount + noAliveTotal);
         return status;
     }
 
@@ -250,12 +303,38 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
             } else {
                 ghuAliveKey.remove(ghu);
                 if (response.getStatusCode() == HttpStatus.TOO_MANY_REQUESTS) {
-                 setCoolkey(ghu,response);
+                    setCoolkey(ghu, response);
                 } else {
                     redissonClient.getSet(GHU_NO_ALIVE_KEY, StringCodec.INSTANCE).addAsync(ghu);
                 }
                 i++;
             }
+        }
+
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body("{\"message\": \"Too Many Requests\"}");
+    }
+
+    private void setCoolkey(String ghu, ResponseEntity response) {
+        String retryAfter = response.getHeaders().getFirst(HEADER_RETRY);
+        // 默认 600秒
+        long time = 120;
+        if (StringUtil.isNotBlank(retryAfter)) {
+            try {
+                time = Long.parseLong(retryAfter);
+            } catch (NumberFormatException e) {}
+        }
+
+        if (time > 1000) {
+            redissonClient.getSet(GHU_NO_ALIVE_KEY, StringCodec.INSTANCE).addAsync(ghu);
+        } else {
+            RMapCache<String, Integer> collingMap = redissonClient.getMapCache(GHU_COOLING_KEY);
+            if (!collingMap.isExists()) {
+                collingMap.addListener((EntryExpiredListener<String, Integer>) event -> {
+                    // expired key
+                    redissonClient.getSet(GHU_ALIVE_KEY, StringCodec.INSTANCE).add(event.getKey());
+                });
+            }
+            collingMap.put(ghu, 1, time+5, TimeUnit.SECONDS);
         }
 
         return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body("{\"message\": \"Too Many Requests\"}");
