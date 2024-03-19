@@ -162,10 +162,14 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
 
             //检查是否禁止访问
             RBucket<Boolean> ban = redissonClient.getBucket(RC_BAN + userId);
-            RBucket<Boolean> tempBan = redissonClient.getBucket(RC_TEMPORARY_BAN + userId);
-            if (ban.isExists() || tempBan.isExists()) {
+            if (ban.isExists()) {
                 return new ResponseEntity<>("You have been banned", HttpStatus.UNAUTHORIZED);
             }
+            RBucket<Boolean> tempBan = redissonClient.getBucket(RC_TEMPORARY_BAN + userId);
+            if (tempBan.isExists()) {
+                return new ResponseEntity<>("You have been marked, please try again in a few hours", HttpStatus.UNAUTHORIZED);
+            }
+
 
             // 检测用户信息         0级用户直接ban
             int trustLevel = userInfo.getIntValue("trust_level");
@@ -201,16 +205,14 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
         // 根据用户信任级别限流
         RRateLimiter rateLimiter = redissonClient.getRateLimiter(USER_RATE_LIMITER + userId);
         if (!rateLimiter.isExists()) {
-            RateIntervalUnit timeUnit = RateIntervalUnit.MINUTES;
-            rateLimiter.trySetRate(RateType.OVERALL, ((long) coCoConfig.getUserFrequencyDegree() * trustLevel), coCoConfig.getUserRateTime(), timeUnit);
-            rateLimiter.expireAsync(Duration.ofMinutes(30));
+            rateLimiter.trySetRate(RateType.OVERALL, ((long) coCoConfig.getUserFrequencyDegree() * trustLevel), coCoConfig.getUserRateTime(), RateIntervalUnit.MINUTES);
+            rateLimiter.expireAsync(Duration.ofHours(coCoConfig.getUserTokenExpire()));
         }
-
+        String tokenKey = DigestUtils.md5DigestAsHex((auth + userId).getBytes());
         if (rateLimiter.tryAcquire()) {
             // 调用 handleProxy 方法并获取响应
             ResponseEntity<String> response = handleProxy(requestBody, path);
             if (response.getStatusCode().is2xxSuccessful()) {
-                String tokenKey = DigestUtils.md5DigestAsHex((auth + userId).getBytes());
                 //成功访问
                 long tokenSuccess = redissonClient.getAtomicLong(RC_TOKEN_SUCCESS_REQ + tokenKey).incrementAndGet();
                 if (tokenSuccess > ((long) rcConfig.getTokenMaxReq() * trustLevel)) {
@@ -224,15 +226,22 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
             }
             return ResponseEntity.status(response.getStatusCode()).body(response.getBody());
         } else {
-            RAtomicLong limitNum = redissonClient.getAtomicLong(RC_USER_Limit_NUM + userId);
-            long l = limitNum.incrementAndGet();
-            if (l > rcConfig.getTokenInvalidNum()) {
+            long l = redissonClient.getAtomicLong(RC_USER_TOKEN_LIMIT_NUM + tokenKey).incrementAndGet();
+            RAtomicLong userLimit = redissonClient.getAtomicLong(RC_USER_LIMIT_NUM + userId);
+            if (l > rcConfig.getRejectTimeNum()) {
+                userLimit.incrementAndGet();
                 redissonClient.getBucket(SYS_USER_ID + auth).deleteAsync();
-            } else if (l > rcConfig.getRejectTimeNum()) {
                 redissonClient.getBucket(RC_TEMPORARY_BAN + userId).set(true, Duration.ofHours(rcConfig.getRejectTime()));
-            } else if (l > rcConfig.getBanNum()) {
+            } else if (l >= rcConfig.getTokenInvalidNum() && l <= rcConfig.getRejectTimeNum()) {
+                rateLimiter.trySetRate(RateType.OVERALL, ((long) (coCoConfig.getUserFrequencyDegree() * 0.5)), coCoConfig.getUserRateTime(), RateIntervalUnit.MINUTES);
+            }
+
+            if (userLimit.isExists() && userLimit.get() > rcConfig.getBanNum()) {
+                redissonClient.getBucket(SYS_USER_ID + auth).deleteAsync();
                 redissonClient.getBucket(RC_BAN + userId).set(true);
             }
+
+
             log.warn("用户ID:{}，trustLevel:{}，token:{}被限流使用", userId, trustLevel, auth);
             return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body("Your Rate limit");
         }

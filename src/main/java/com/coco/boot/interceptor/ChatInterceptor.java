@@ -17,7 +17,6 @@ import org.springframework.web.servlet.HandlerInterceptor;
 import java.io.IOException;
 import java.time.Duration;
 
-import static com.coco.boot.constant.RiskContrConstant.RC_USER_Limit_NUM;
 import static com.coco.boot.constant.SysConstant.GHU_ALIVE_KEY;
 import static com.coco.boot.constant.SysConstant.SYS_USER_ID;
 import static com.coco.boot.constant.SysConstant.USING_USER;

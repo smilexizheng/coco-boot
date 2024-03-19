@@ -9,7 +9,8 @@ public interface RiskContrConstant {
     String RC_USER_SUCCESS_REQ = "rc:user-success-num:";
 
 
-    String RC_USER_Limit_NUM = "rc:user-limit-num:";
+    String RC_USER_LIMIT_NUM = "rc:user-limit-num:";
+    String RC_USER_TOKEN_LIMIT_NUM = "rc:user-token-limit-num:";
 
     String RC_BAN = "rc:ban:";
 

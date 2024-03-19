@@ -66,12 +66,12 @@ risk-contr:
   #每天用户最大请求数量 *倍率  限制 10小时 不可登陆
   userMaxReq: 2000
   userMaxTime: 10
-  #超出用户最大访问速率 次数限制
-  #10次 当前token失效
+  #超出用户最大访问速率
+  #10次 该用户访问频率为  基础 * 0.5倍
   tokenInvalidNum: 10
-  #30次 限制 2小时 不可登陆
+  #30次  token失效  2小时不可登陆
   rejectTimeNum: 30
   rejectTime: 2
-  #200次 ban号级别
-  banNum: 200
+  #ban级别  触发 5 次上面 reject 限制 封号
+  banNum: 5
 
