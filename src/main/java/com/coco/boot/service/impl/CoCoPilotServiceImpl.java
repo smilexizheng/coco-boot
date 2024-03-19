@@ -87,7 +87,7 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
                 map.put(ghu, "存活");
                 ghus.add(ghu);
             } else if (response.getStatusCode() == HttpStatus.TOO_MANY_REQUESTS) {
-                Integer retry = Integer.valueOf(response.getHeaders().get(HEADER_RETRY).get(0));
+                setCoolkey(ghu,response);
                 log.info("upload 存活校验限流: {}, 返回: {}", ghu, response.getBody());
             } else {
                 map.put(ghu, "失效");
@@ -299,27 +299,7 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
             } else {
                 ghuAliveKey.remove(ghu);
                 if (response.getStatusCode() == HttpStatus.TOO_MANY_REQUESTS) {
-                    String retryAfter = response.getHeaders().getFirst("x-ratelimit-user-retry-after");
-                    // 默认 600秒
-                    long time = 120;
-                    if (StringUtil.isNotBlank(retryAfter)) {
-                        try {
-                            time = Long.parseLong(retryAfter);
-                        } catch (NumberFormatException e) {}
-                    }
-
-                    if (time > 1000) {
-                        redissonClient.getSet(GHU_NO_ALIVE_KEY, StringCodec.INSTANCE).addAsync(ghu);
-                    } else {
-                        RMapCache<String, Integer> collingMap = redissonClient.getMapCache(GHU_COOLING_KEY);
-                        if (!collingMap.isExists()) {
-                            collingMap.addListener((EntryExpiredListener<String, Integer>) event -> {
-                                // expired key
-                                redissonClient.getSet(GHU_ALIVE_KEY, StringCodec.INSTANCE).add(event.getKey());
-                            });
-                        }
-                        collingMap.put(ghu, 1, time+5, TimeUnit.SECONDS);
-                    }
+                    setCoolkey(ghu, response);
                 } else {
                     redissonClient.getSet(GHU_NO_ALIVE_KEY, StringCodec.INSTANCE).addAsync(ghu);
                 }
@@ -328,6 +308,30 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
         }
 
         return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body("{\"message\": \"Too Many Requests\"}");
+    }
+
+    private void setCoolkey(String ghu, ResponseEntity response) {
+        String retryAfter = response.getHeaders().getFirst(HEADER_RETRY);
+        // 默认 600秒
+        long time = 120;
+        if (StringUtil.isNotBlank(retryAfter)) {
+            try {
+                time = Long.parseLong(retryAfter);
+            } catch (NumberFormatException e) {}
+        }
+
+        if (time > 1000) {
+            redissonClient.getSet(GHU_NO_ALIVE_KEY, StringCodec.INSTANCE).addAsync(ghu);
+        } else {
+            RMapCache<String, Integer> collingMap = redissonClient.getMapCache(GHU_COOLING_KEY);
+            if (!collingMap.isExists()) {
+                collingMap.addListener((EntryExpiredListener<String, Integer>) event -> {
+                    // expired key
+                    redissonClient.getSet(GHU_ALIVE_KEY, StringCodec.INSTANCE).add(event.getKey());
+                });
+            }
+            collingMap.put(ghu, 1, time+5, TimeUnit.SECONDS);
+        }
     }
 
 
