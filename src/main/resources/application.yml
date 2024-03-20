@@ -14,8 +14,6 @@ spring:
   web:
     resources:
       static-locations: classpath:static/
-  redisson:
-    file: classpath:redisson-config.yml
 
 
 #okHttpClient配置
@@ -76,4 +74,31 @@ risk-contr:
   rejectTime: 2
   #ban级别  触发 5 次上面 reject 限制 封号
   banNum: 5
+
+#redis 配置
+redisson:
+  mode: single
+  database: 1
+  password:
+  single:
+    address: redis://127.0.0.1:6379
+  cluster:
+    master-connection-pool-size: 64
+    nodes: redis://127.0.0.1:7004,redis://127.0.0.1:7001,redis://127.0.0.1:7000
+    retry-attempts: 3
+    retry-interval: 1500
+    scan-interval: 1000
+    slave-connection-pool-size: 64
+  sentinel:
+    nodes: redis://127.0.0.1:7004,redis://127.0.0.1:7001,redis://127.0.0.1:7000
+    master: business-master
+    master-onlyWrite: true
+  timeout: 3000
+  read-mode: SLAVE
+  subscription-mode: SLAVE
+  pool:
+    conn-timeout: 3000
+    min-idle: 24
+    size: 24
+    so-timeout: 3000
 

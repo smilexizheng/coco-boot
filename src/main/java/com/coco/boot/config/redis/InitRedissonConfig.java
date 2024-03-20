@@ -1,20 +1,19 @@
 package com.coco.boot.config.redis;
 
+import io.micrometer.common.util.StringUtils;
+import jakarta.annotation.Resource;
 import org.redisson.Redisson;
 import org.redisson.api.RedissonClient;
-import org.redisson.config.Config;
+import org.redisson.config.*;
 import org.redisson.spring.data.connection.RedissonConnectionFactory;
 import org.springframework.cache.CacheManager;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.core.io.Resource;
-import org.springframework.core.io.ResourceLoader;
 import org.springframework.data.redis.cache.RedisCacheConfiguration;
 import org.springframework.data.redis.cache.RedisCacheManager;
 import org.springframework.data.redis.serializer.JdkSerializationRedisSerializer;
 import org.springframework.data.redis.serializer.RedisSerializationContext;
 
-import java.io.IOException;
 import java.time.Duration;
 
 
@@ -31,16 +30,65 @@ import java.time.Duration;
 @Configuration
 public class InitRedissonConfig {
 
-    @jakarta.annotation.Resource
-    private RedissonProperties redissonProperties;
-
-    @jakarta.annotation.Resource
-    private ResourceLoader resourceLoader;
+    @Resource
+    RedissonProperties redisProperties;
 
     @Bean(destroyMethod = "shutdown")
-    public RedissonClient getRedissonClient() throws IOException {
-        Resource configFile = resourceLoader.getResource(redissonProperties.getFile());
-        Config config = Config.fromYAML(configFile.getInputStream());
+    public RedissonClient getRedissonClient() {
+        Config config = new Config();
+        String mode = redisProperties.getMode();
+        if (mode.equals("single")) {
+            SingleServerConfig serverConfig = config.useSingleServer()
+                    .setAddress(redisProperties.getSingle().getAddress())
+                    .setTimeout(redisProperties.getPool().getConnTimeout())
+                    .setConnectionPoolSize(redisProperties.getPool().getSize())
+                    .setDatabase(redisProperties.getDatabase())
+                    .setConnectionMinimumIdleSize(redisProperties.getPool().getMinIdle());
+            if (StringUtils.isNotBlank(redisProperties.getPassword())) {
+                serverConfig.setPassword(redisProperties.getPassword());
+            }
+
+        } else if (mode.equals("cluster")) {
+            String[] nodes = redisProperties.getCluster().getNodes().split(",");
+            ClusterServersConfig serverConfig = config.useClusterServers()
+                    .addNodeAddress(nodes)
+                    .setScanInterval(
+                            redisProperties.getCluster().getScanInterval())
+                    .setIdleConnectionTimeout(
+                            redisProperties.getPool().getSoTimeout())
+                    .setConnectTimeout(
+                            redisProperties.getPool().getConnTimeout())
+                    .setRetryAttempts(
+                            redisProperties.getCluster().getRetryAttempts())
+                    .setRetryInterval(
+                            redisProperties.getCluster().getRetryInterval())
+                    .setMasterConnectionPoolSize(redisProperties.getCluster()
+                            .getMasterConnectionPoolSize())
+                    .setSlaveConnectionPoolSize(redisProperties.getCluster()
+                            .getSlaveConnectionPoolSize())
+                    .setReadMode(redisProperties.getReadMode())
+                    .setSubscriptionMode(redisProperties.getSubscriptionMode())
+                    .setTimeout(redisProperties.getTimeout());
+            if (StringUtils.isNotBlank(redisProperties.getPassword())) {
+                serverConfig.setPassword(redisProperties.getPassword());
+            }
+        } else if (mode.equals("sentinel")) {
+            String[] nodes = redisProperties.getSentinel().getNodes().split(",");
+            SentinelServersConfig serverConfig = config.useSentinelServers()
+                    .addSentinelAddress(nodes)
+                    .setMasterName(redisProperties.getSentinel().getMaster())
+                    .setReadMode(redisProperties.getReadMode())
+                    .setSubscriptionMode(redisProperties.getSubscriptionMode())
+                    .setTimeout(redisProperties.getTimeout())
+                    .setDatabase(redisProperties.getDatabase())
+                    .setMasterConnectionPoolSize(redisProperties.getPool().getSize())
+                    .setSlaveConnectionPoolSize(redisProperties.getPool().getSize());
+
+            if (StringUtils.isNotBlank(redisProperties.getPassword())) {
+                serverConfig.setPassword(redisProperties.getPassword());
+            }
+        }
+
         return Redisson.create(config);
     }
 
