@@ -14,7 +14,7 @@
     <springProperty scope="context" name="maxHistory" source="log.max-history"/>
     <!-- 日志输出格式 -->
     <property name="log.pattern"
-              value="[${applicationName}, ${ip}:${port}, %remoteIp] %-5p %d{yyyy-MM-dd HH:mm:ss.SSS} [%t, %X{traceId:-}, %X{spanId:-}, %X{parentId:-}] %c.%M:%L - %m%n"/>
+              value="[${applicationName}, ${ip}:${port}, %remoteIp] %-5p %d{yyyy-MM-dd HH:mm:ss.SSS} [%t] %c.%M:%L - %m%n"/>
 
     <!-- 控制台输出 -->
     <appender name="console" class="ch.qos.logback.core.ConsoleAppender">
