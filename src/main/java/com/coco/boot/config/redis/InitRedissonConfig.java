@@ -37,55 +37,58 @@ public class InitRedissonConfig {
     public RedissonClient getRedissonClient() {
         Config config = new Config();
         String mode = redisProperties.getMode();
-        if (mode.equals("single")) {
-            SingleServerConfig serverConfig = config.useSingleServer()
-                    .setAddress(redisProperties.getSingle().getAddress())
-                    .setTimeout(redisProperties.getPool().getConnTimeout())
-                    .setConnectionPoolSize(redisProperties.getPool().getSize())
-                    .setDatabase(redisProperties.getDatabase())
-                    .setConnectionMinimumIdleSize(redisProperties.getPool().getMinIdle());
-            if (StringUtils.isNotBlank(redisProperties.getPassword())) {
-                serverConfig.setPassword(redisProperties.getPassword());
+        switch (mode) {
+            case "single" -> {
+                SingleServerConfig serverConfig = config.useSingleServer()
+                        .setAddress(redisProperties.getSingle().getAddress())
+                        .setTimeout(redisProperties.getPool().getConnTimeout())
+                        .setConnectionPoolSize(redisProperties.getPool().getSize())
+                        .setDatabase(redisProperties.getDatabase())
+                        .setConnectionMinimumIdleSize(redisProperties.getPool().getMinIdle());
+                if (StringUtils.isNotBlank(redisProperties.getPassword())) {
+                    serverConfig.setPassword(redisProperties.getPassword());
+                }
             }
-
-        } else if (mode.equals("cluster")) {
-            String[] nodes = redisProperties.getCluster().getNodes().split(",");
-            ClusterServersConfig serverConfig = config.useClusterServers()
-                    .addNodeAddress(nodes)
-                    .setScanInterval(
-                            redisProperties.getCluster().getScanInterval())
-                    .setIdleConnectionTimeout(
-                            redisProperties.getPool().getSoTimeout())
-                    .setConnectTimeout(
-                            redisProperties.getPool().getConnTimeout())
-                    .setRetryAttempts(
-                            redisProperties.getCluster().getRetryAttempts())
-                    .setRetryInterval(
-                            redisProperties.getCluster().getRetryInterval())
-                    .setMasterConnectionPoolSize(redisProperties.getCluster()
-                            .getMasterConnectionPoolSize())
-                    .setSlaveConnectionPoolSize(redisProperties.getCluster()
-                            .getSlaveConnectionPoolSize())
-                    .setReadMode(redisProperties.getReadMode())
-                    .setSubscriptionMode(redisProperties.getSubscriptionMode())
-                    .setTimeout(redisProperties.getTimeout());
-            if (StringUtils.isNotBlank(redisProperties.getPassword())) {
-                serverConfig.setPassword(redisProperties.getPassword());
+            case "cluster" -> {
+                String[] nodes = redisProperties.getCluster().getNodes().split(",");
+                ClusterServersConfig serverConfig = config.useClusterServers()
+                        .addNodeAddress(nodes)
+                        .setScanInterval(
+                                redisProperties.getCluster().getScanInterval())
+                        .setIdleConnectionTimeout(
+                                redisProperties.getPool().getSoTimeout())
+                        .setConnectTimeout(
+                                redisProperties.getPool().getConnTimeout())
+                        .setRetryAttempts(
+                                redisProperties.getCluster().getRetryAttempts())
+                        .setRetryInterval(
+                                redisProperties.getCluster().getRetryInterval())
+                        .setMasterConnectionPoolSize(redisProperties.getCluster()
+                                .getMasterConnectionPoolSize())
+                        .setSlaveConnectionPoolSize(redisProperties.getCluster()
+                                .getSlaveConnectionPoolSize())
+                        .setReadMode(redisProperties.getReadMode())
+                        .setSubscriptionMode(redisProperties.getSubscriptionMode())
+                        .setTimeout(redisProperties.getTimeout());
+                if (StringUtils.isNotBlank(redisProperties.getPassword())) {
+                    serverConfig.setPassword(redisProperties.getPassword());
+                }
             }
-        } else if (mode.equals("sentinel")) {
-            String[] nodes = redisProperties.getSentinel().getNodes().split(",");
-            SentinelServersConfig serverConfig = config.useSentinelServers()
-                    .addSentinelAddress(nodes)
-                    .setMasterName(redisProperties.getSentinel().getMaster())
-                    .setReadMode(redisProperties.getReadMode())
-                    .setSubscriptionMode(redisProperties.getSubscriptionMode())
-                    .setTimeout(redisProperties.getTimeout())
-                    .setDatabase(redisProperties.getDatabase())
-                    .setMasterConnectionPoolSize(redisProperties.getPool().getSize())
-                    .setSlaveConnectionPoolSize(redisProperties.getPool().getSize());
+            case "sentinel" -> {
+                String[] nodes = redisProperties.getSentinel().getNodes().split(",");
+                SentinelServersConfig serverConfig = config.useSentinelServers()
+                        .addSentinelAddress(nodes)
+                        .setMasterName(redisProperties.getSentinel().getMaster())
+                        .setReadMode(redisProperties.getReadMode())
+                        .setSubscriptionMode(redisProperties.getSubscriptionMode())
+                        .setTimeout(redisProperties.getTimeout())
+                        .setDatabase(redisProperties.getDatabase())
+                        .setMasterConnectionPoolSize(redisProperties.getPool().getSize())
+                        .setSlaveConnectionPoolSize(redisProperties.getPool().getSize());
 
-            if (StringUtils.isNotBlank(redisProperties.getPassword())) {
-                serverConfig.setPassword(redisProperties.getPassword());
+                if (StringUtils.isNotBlank(redisProperties.getPassword())) {
+                    serverConfig.setPassword(redisProperties.getPassword());
+                }
             }
         }
 

@@ -1,3 +1,10 @@
+# 日志配置
+log:
+  # 日志路径
+  path: ./logs
+  # 日志最大的历史
+  max-history: 730
+
 server:
   port: 8181
 spring:
@@ -33,16 +40,16 @@ coco:
   # 请求L站 state 过期时间 分钟
   expirationTtl: 5
   #重定向地址
-  redirectUri:
-  clientId:
-  clientSecret:
+  redirectUri: http://localhost:8181/oauth2/callback
+  clientId: hi3geJYfTotoiR5S62u3rh4W5tSeC5UG
+  clientSecret: VMPBVoAfOB5ojkGXRDEtzvDhRLENHpaN
   #  L站
-  authorizationEndpoint:
-  tokenEndpoint:
-  userEndpoint:
+  authorizationEndpoint: https://connect.linux.do/oauth2/authorize
+  tokenEndpoint: https://connect.linux.do/oauth2/token
+  userEndpoint: https://connect.linux.do/api/user
   #代理节点
-  baseApi:
-  baseProxy:
+  baseApi: https://api.cocopilot.org/copilot_internal/v2/token
+  baseProxy: https://proxy.cocopilot.org
   #ghu 频率秒  1秒8次
   frequencyTime: 1
   #ghu频率数
@@ -74,13 +81,6 @@ risk-contr:
   rejectTime: 2
   #ban级别  触发 5 次上面 reject 限制 封号
   banNum: 5
-
-# 日志配置
-log:
-  # 日志路径
-  path: ./logs
-  # 日志最大的历史
-  max-history: 730
 
 #redis 配置
 redisson:
