@@ -159,23 +159,18 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
         JSONObject userInfo = responseEntity.getBody();
         assert userInfo != null;
         String userId = userInfo.getString("id");
-        //登陆次数
-        RAtomicLong getTokenNum = redissonClient.getAtomicLong(RC_GET_TOKEN_NUM + userId);
-        long l = getTokenNum.incrementAndGet();
-        if (l > rcConfig.getGetTokenNum()) {
-            return new ResponseEntity<>("You Can Try again tomorrow", HttpStatus.UNAUTHORIZED);
-        }
 
         //检查是否禁止访问
-        RBucket<Boolean> ban = redissonClient.getBucket(RC_BAN + userId);
-        if (ban.isExists()) {
+        if (redissonClient.getBucket(RC_BAN + userId).isExists()) {
             return new ResponseEntity<>("You have been banned", HttpStatus.UNAUTHORIZED);
         }
-        RBucket<Boolean> tempBan = redissonClient.getBucket(RC_TEMPORARY_BAN + userId);
-        if (tempBan.isExists()) {
+        if (redissonClient.getBucket(RC_TEMPORARY_BAN + userId).isExists()) {
             return new ResponseEntity<>("You have been marked, please try again in a few hours", HttpStatus.UNAUTHORIZED);
         }
-
+        //登陆次数
+        if (redissonClient.getAtomicLong(RC_GET_TOKEN_NUM + userId).incrementAndGet() > rcConfig.getGetTokenNum()) {
+            return new ResponseEntity<>("You Can Try again tomorrow", HttpStatus.UNAUTHORIZED);
+        }
 
         // 检测用户信息         0级用户直接ban
         int trustLevel = userInfo.getIntValue("trust_level");
