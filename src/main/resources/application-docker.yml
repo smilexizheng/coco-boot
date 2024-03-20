@@ -58,3 +58,9 @@ coco:
   #允许用户的最低等级等级
   userLevel: ${COCO_USER_LEVEL:2}
 
+# 日志配置
+log:
+  # 日志路径
+  path: /app/logs
+  # 日志最大的历史
+  max-history: 730
