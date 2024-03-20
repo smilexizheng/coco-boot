@@ -1,3 +1,10 @@
+# 日志配置
+log:
+  # 日志路径
+  path: /app/logs
+  # 日志最大的历史
+  max-history: 730
+
 server:
   port: 8181
 spring:
@@ -58,9 +65,47 @@ coco:
   #允许用户的最低等级等级
   userLevel: ${COCO_USER_LEVEL:2}
 
-# 日志配置
-log:
-  # 日志路径
-  path: /app/logs
-  # 日志最大的历史
-  max-history: 730
+#风控参数
+risk-contr:
+  # 一个账号 一天能获取多少次Token
+  getTokenNum: ${RISK_CONTR_GET_TOKEN_NUM:10}
+  #单token 成功请求的最大数量 * 倍率 token失效
+  tokenMaxReq: ${RISK_CONTR_TOKEN_MAX_REQ:500}
+  #每天用户最大请求数量 *倍率  限制 10小时 不可登陆
+  userMaxReq: ${RISK_CONTR_USER_MAX_REQ:2000}
+  userMaxTime: ${RISK_CONTR_USER_MAX_TIME:10}
+  #超出用户最大访问速率
+  #10次 该用户访问频率为  基础 * 0.5倍
+  tokenInvalidNum: ${RISK_CONTR_TOKEN_INVALID_NUM:10}
+  #30次  token失效  2小时不可登陆
+  rejectTimeNum: ${RISK_CONTR_REJECT_TIME_NUM:30}
+  rejectTime: ${RISK_CONTR_REJECT_TIME:2}
+  #ban级别  触发 5 次上面 reject 限制 封号
+  banNum: ${RISK_CONTR_BAN_NUM:5}
+
+#redis 配置
+redisson:
+  mode: ${REDISSON_MODE:single}
+  database: ${REDISSON_DATABASE:0}
+  password: ${REDISSON_PASSWORD}
+  single:
+    address: ${REDISSON_SINGLE_ADDRESS}
+  cluster:
+    master-connection-pool-size: ${REDISSON_CLUSTER_MASTER_CONNECTION_POOL_SIZE:64}
+    nodes: ${REDISSON_CLUSTER_NODES}
+    retry-attempts: ${REDISSON_CLUSTER_RETRY_ATTEMPTS:3}
+    retry-interval: ${REDISSON_CLUSTER_RETRY_INTERVAL:1500}
+    scan-interval: ${REDISSON_CLUSTER_SCAN_INTERVAL:1000}
+    slave-connection-pool-size: ${REDISSON_CLUSTER_SLAVE_CONNECTION_POOL_SIZE:64}
+  sentinel:
+    nodes: ${REDISSON_SENTINEL_NODES}
+    master: ${REDISSON_SENTINEL_MASTER}
+    master-onlyWrite: ${REDISSON_SENTINEL_MASTER_ONLY_WRITE}
+  timeout: ${REDISSON_TIMEOUT:3000}
+  read-mode: ${REDISSON_READ_MODE:SLAVE}
+  subscription-mode: ${REDISSON_SUBSCRIPTION_MODE:SLAVE}
+  pool:
+    conn-timeout: ${REDISSON_POOL_CONN_TIMEOUT:3000}
+    min-idle: ${REDISSON_POOL_MIN_IDLE:24}
+    size: ${REDISSON_POOL_SIZE:64}
+    so-timeout: ${REDISSON_POOL_SO_TIMEOUT:3000}

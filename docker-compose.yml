@@ -59,6 +59,52 @@ services:
       RISK_CONTR_REJECT_TIME: "2"
       # ban 5次  5次不可登陆
       RISK_CONTR_BAN_NUM: "5"
+      # redisson配置
+      # redisson模式 single/cluster/sentinel 三选一 默认single
+      # single 单机模式 cluster 集群模式 sentinel 哨兵模式
+      REDISSON_MODE: "single"
+      # redis数据库
+      REDISSON_DATABASE: "0"
+      # redis密码
+      REDISSON_PASSWORD: ""
+      # redisson单机地址 例如 redis://127.0.0.1:6379
+      REDISSON_SINGLE_ADDRESS: ""
+      # redisson集群节点 逗号分隔 例如 redis://127.0.0.1:7004,redis://127.0.0.1:7001,redis://127.0.0.1:7000
+      REDISSON_CLUSTER_NODES: ""
+      # redisson集群主连接池大小
+      REDISSON_CLUSTER_MASTER_CONNECTION_POOL_SIZE: "64"
+      # redisson集群重试次数
+      REDISSON_CLUSTER_RETRY_ATTEMPTS: "3"
+      # redisson集群重试间隔
+      REDISSON_CLUSTER_RETRY_INTERVAL: "1500"
+      # redisson集群扫描间隔
+      REDISSON_CLUSTER_SCAN_INTERVAL: "1000"
+      # redisson集群从连接池大小
+      REDISSON_CLUSTER_SLAVE_CONNECTION_POOL_SIZE: "64"
+      # redisson哨兵节点 逗号分隔 例如 redis://127.0.0.1:7004,redis://127.0.0.1:7001,redis://127.0.0.1:7000
+      REDISSON_SENTINEL_NODES: ""
+      # redisson哨兵主节点
+      REDISSON_SENTINEL_MASTER: ""
+      # redisson哨兵只写 主节点 true/false
+      REDISSON_SENTINEL_MASTER_ONLY_WRITE: ""
+      # redisson超时时间
+      REDISSON_TIMEOUT: "3000"
+      # redisson读模式 MASTER/SLAVE/MASTER_SLAVE 默认SLAVE 仅在集群模式下有效
+      # SLAVE 从节点 MASTER 主节点 MASTER_SLAVE 主从混合
+      REDISSON_READ_MODE: "SLAVE"
+      # redisson订阅模式 MASTER/SLAVE 默认SLAVE 仅在集群模式下有效
+      # SLAVE 从节点 MASTER 主节点
+      REDISSON_SUBSCRIPTION_MODE: "SLAVE"
+      # redisson连接池配置
+      # redisson连接池连接超时时间 默认3000
+      REDISSON_POOL_CONN_TIMEOUT: "3000"
+      # redisson连接池最小空闲连接数 默认24
+      REDISSON_POOL_MIN_IDLE: "24"
+      # redisson连接池大小 默认64
+      REDISSON_POOL_SIZE: "64"
+      # redisson连接池读取超时时间 默认3000
+      REDISSON_POOL_SO_TIMEOUT: "3000"
+
 
   redis:
     image: redis
