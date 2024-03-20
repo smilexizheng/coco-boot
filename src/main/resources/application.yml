@@ -47,10 +47,10 @@ coco:
   frequencyTime: 1
   #ghu频率数
   frequencyDegree: 8
-  #用户基础频率  5分钟10次
-  userRateTime: 5
+  #用户基础频率  1分钟10次
+  userRateTime: 1
   #用户基础频率数
-  userFrequencyDegree: 15
+  userFrequencyDegree: 10
   #用户token 有效期无请求接口 小时
   userTokenExpire: 1
   #允许用户的最低等级等级
@@ -74,6 +74,13 @@ risk-contr:
   rejectTime: 2
   #ban级别  触发 5 次上面 reject 限制 封号
   banNum: 5
+
+# 日志配置
+log:
+  # 日志路径
+  path: ./logs
+  # 日志最大的历史
+  max-history: 730
 
 #redis 配置
 redisson:
