@@ -12,31 +12,53 @@ services:
     ports:
       - "8181:8181"
     environment:
+      # coco配置
+      # 请求L站 state 过期时间 分钟
       COCO_EXPIRATION_TTL: "5"
+      # L站 oauth2认证重定向地址
       COCO_REDIRECT_URI: ""
+      # L站 oauth2认证客户端id
       COCO_CLIENT_ID: ""
+      # L站 oauth2认证客户端secret
       COCO_CLIENT_SECRET: ""
+      # L站 oauth2认证地址
       COCO_AUTHORIZATION_ENDPOINT: ""
+      # L站 oauth2认证token地址
       COCO_TOKEN_ENDPOINT: ""
+      # L站 oauth2认证用户信息地址
       COCO_USER_ENDPOINT: ""
+      # 代理节点 完整地址
       COCO_BASE_API: ""
+      # 代理节点
       COCO_BASE_PROXY: ""
+      # ghu 频率秒  1秒8次
       COCO_FREQUENCY_TIME: "1"
+      # ghu频率数
       COCO_FREQUENCY_DEGREE: "8"
-      COCO_USER_RATE_TIME: "5"
+      # 用户基础频率  1分钟10次
+      COCO_USER_RATE_TIME: "1"
+      # 用户基础频率数
       COCO_USER_FREQUENCY_DEGREE: "10"
+      # 用户token 有效期无请求接口 小时
       COCO_USER_TOKEN_EXPIRE: "1"
+      # 允许用户的最低等级等级
       COCO_USER_LEVEL: "2"
+      # 风控参数
+      # 一个账号 一天能获取多少次Token
       RISK_CONTR_GET_TOKEN_NUM: "10"
+      # 单token 成功请求的最大数量 * 倍率 token失效
       RISK_CONTR_TOKEN_MAX_REQ: "500"
+      # 每天用户最大请求数量 *倍率  限制 10小时 不可登陆
       RISK_CONTR_USER_MAX_REQ: "2000"
       RISK_CONTR_USER_MAX_TIME: "10"
+      # 用户最大访问速率
+      # 10次 该用户访问频率为  基础 * 0.5倍
       RISK_CONTR_TOKEN_INVALID_NUM: "10"
+      # 30次  token失效  2小时不可登陆
       RISK_CONTR_REJECT_TIME_NUM: "30"
       RISK_CONTR_REJECT_TIME: "2"
+      # ban 5次  5次不可登陆
       RISK_CONTR_BAN_NUM: "5"
-    volumes:
-      - ./src/main/resources/redisson-config.yml:/app/conf/redisson-config.yml:rw
 
   redis:
     image: redis
