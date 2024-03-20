@@ -8,15 +8,16 @@ import org.redisson.api.RKeys;
 import org.redisson.api.RSet;
 import org.redisson.api.RedissonClient;
 import org.redisson.client.codec.StringCodec;
-import org.springframework.http.HttpEntity;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpMethod;
-import org.springframework.http.ResponseEntity;
+import org.springframework.http.*;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.util.DigestUtils;
-import org.springframework.util.MultiValueMap;
 import org.springframework.web.client.RestTemplate;
+
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpResponse;
+import java.util.concurrent.CompletableFuture;
 
 import static com.coco.boot.constant.RiskContrConstant.*;
 import static com.coco.boot.constant.SysConstant.*;
@@ -55,11 +56,12 @@ public class CoCoTask {
      * 凌晨1点执行
      */
     @Scheduled(cron = "0 0 1 * * ?")
-//    @Scheduled(cron = "0/10 * * * * ?")启动后，test()添加数据， 此定时任务 10秒后执行
+//    @Scheduled(cron = "0/10 * * * * ?") //启动后，test()添加数据， 此定时任务 10秒后执行
     private void checkSomeKey() {
         RSet<String> noAlive = redissonClient.getSet(GHU_NO_ALIVE_KEY, StringCodec.INSTANCE);
         RSet<String> alive = redissonClient.getSet(GHU_ALIVE_KEY, StringCodec.INSTANCE);
         RAtomicLong noAliveNum = redissonClient.getAtomicLong(COUNT_NO_ALIVE_KEY);
+
         for (String key : noAlive.readAll()) {
             if (alive.contains(key)) {
                 continue;
@@ -67,35 +69,49 @@ public class CoCoTask {
             RAtomicLong checkNum = redissonClient.getAtomicLong(CHECK_NO_ALIVE_KEY + DigestUtils.md5DigestAsHex(key.getBytes()));
             long num = checkNum.incrementAndGet();
 
-            HttpHeaders httpHeaders = new HttpHeaders();
-            httpHeaders.set("Authorization", "token " + key);
-            //存活校验
-            HttpEntity<MultiValueMap<String, Object>> requestEntity = new HttpEntity<>(httpHeaders);
             try {
-                ResponseEntity<String> response = rest.exchange(coCoConfig.getBaseApi(), HttpMethod.GET, requestEntity, String.class);
-                if (response.getStatusCode().is2xxSuccessful()) {
-                    log.info(" get one alive  key:{}", key);
-                    alive.add(key);
-                    checkNum.deleteAsync();
-                    noAlive.removeAsync(key);
-                    continue;
-                }
+                CompletableFuture<HttpResponse<String>> future = AliveTest(key, coCoConfig);
+                future.thenAccept(response -> {
+                    int statusCode = response.statusCode();
+                    if (statusCode == HttpStatus.OK.value() || statusCode == HttpStatus.TOO_MANY_REQUESTS.value()) {
+                        log.info(" get one alive  key:{}", key);
+                        alive.add(key);
+                        checkNum.deleteAsync();
+                        noAlive.removeAsync(key);
+                    } else {
+                        log.info("no alive key:{}", key);
+                        if (num > 10) {
+                            checkNum.deleteAsync();
+                            noAlive.removeAsync(key);
+                            noAliveNum.incrementAndGet();
+                        }
+                    }
+                });
+
+
             } catch (Exception e) {
                 log.error("check 校验异常", e);
-            }
-            if (num > 10) {
-                noAliveNum.deleteAsync();
-                noAlive.removeAsync(key);
             }
 
 
         }
+
+    }
+
+    public static CompletableFuture<HttpResponse<String>> AliveTest(String key, CoCoConfig coCoConfig) {
+        HttpClient httpClient = HttpClient.newHttpClient();
+        java.net.http.HttpRequest request = java.net.http.HttpRequest.newBuilder()
+                .GET()
+                .uri(URI.create(coCoConfig.getBaseApi()))
+                .headers("Content-Type", "application/json", "Authorization", "token " + key)
+                .build();
+        return httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString());
     }
 
     /**
      * 添加测试数据
      */
-//    @PostConstruct  开启注解测试
+//    @PostConstruct  //开启注解测试
     private void test() {
         //  TODO 测试通过后 删除此代码
         RSet<String> noAlive = redissonClient.getSet(GHU_NO_ALIVE_KEY, StringCodec.INSTANCE);

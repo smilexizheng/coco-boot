@@ -13,6 +13,7 @@ import com.coco.boot.entity.ServiceStatus;
 import com.coco.boot.interceptor.ChatInterceptor;
 import com.coco.boot.pojo.Conversation;
 import com.coco.boot.service.CoCoPilotService;
+import com.coco.boot.task.CoCoTask;
 import jodd.util.StringUtil;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -30,9 +31,11 @@ import org.springframework.web.client.RestTemplate;
 import org.springframework.web.servlet.ModelAndView;
 import org.springframework.web.servlet.view.RedirectView;
 
+
+import java.net.http.HttpResponse;
 import java.time.Duration;
-import java.util.HashMap;
-import java.util.Map;
+import java.util.*;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
 import static com.coco.boot.constant.RiskContrConstant.*;
@@ -57,43 +60,50 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
         if (!StringUtils.hasLength(data)) {
             return R.fail();
         }
-
+        Set<String> keys;
+        try {
+            JSONObject json = JSONObject.parseObject(data);
+            keys = json.keySet();
+        }catch (Exception e){
+            keys= new HashSet<>(Arrays.asList(data.split("%0A|\\r?\\n")));
+        }
         //不符合的数据记录
         Map<String, String> map = new HashMap<>();
         // 处理数据换行
-        String[] ghuArray = data.split("%0A|\\r?\\n");
-        RSet<String> ghus = redissonClient.getSet(GHU_ALIVE_KEY, StringCodec.INSTANCE);
+        RSet<String> aliveSet = redissonClient.getSet(GHU_ALIVE_KEY, StringCodec.INSTANCE);
 
-        for (String ghu : ghuArray) {
-            if (!ghu.startsWith("gh")) {
-                map.put(ghu, "格式错误");
+        List<CompletableFuture> futures  =new ArrayList<>();
+
+        for (String key : keys) {
+            if (!key.startsWith("gh") && key.length()<300) {
+                map.put(key, "格式错误");
                 continue;
             }
 
-            if (ghus.contains(ghu)) {
-                map.put(ghu, "重复添加");
-                log.info("重复添加GHU:{}", ghu);
+            if (aliveSet.contains(key)) {
+                map.put(key, "重复添加");
+                log.info("重复添加GHU:{}", key);
                 continue;
             }
-            HttpHeaders httpHeaders = new HttpHeaders();
-            httpHeaders.set("Authorization", "token " + ghu);
-            //存活校验
-            HttpEntity<MultiValueMap<String, Object>> requestEntity = new HttpEntity<>(httpHeaders);
-
-            ResponseEntity<JSONObject> response = rest.exchange(coCoConfig.getBaseApi(), HttpMethod.GET, requestEntity, JSONObject.class);
-
-
-            if (response.getStatusCode().is2xxSuccessful()) {
-                map.put(ghu, "存活");
-                ghus.add(ghu);
-            } else if (response.getStatusCode() == HttpStatus.TOO_MANY_REQUESTS) {
-                setCoolkey(ghu,response);
-                log.info("upload 存活校验限流: {}, 返回: {}", ghu, response.getBody());
-            } else {
-                map.put(ghu, "失效");
-                log.warn("upload 存活校验失效: {}", ghu);
-            }
+            CompletableFuture<HttpResponse<String>> future = CoCoTask.AliveTest(key, coCoConfig);
+            CompletableFuture<Void> voidCompletableFuture = future.thenAccept(response -> {
+                int statusCode = response.statusCode();
+                if (statusCode == HttpStatus.OK.value()) {
+                    map.put(key, "存活");
+                    aliveSet.add(key);
+                } else if (statusCode == HttpStatus.TOO_MANY_REQUESTS.value()) {
+                    String retryAfter = response.headers().firstValue(HEADER_RETRY).orElse("100");
+                    setCoolkey(key, retryAfter);
+                    log.info("upload 存活校验限流: {}, 返回: {}", key, response.body());
+                } else {
+                    map.put(key, "失效");
+                    log.warn("upload 存活校验失效: {}:{}",statusCode, key);
+                }
+            });
+            futures.add(voidCompletableFuture);
         }
+        CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+
         return R.success("操作完成", map.toString());
     }
 
@@ -298,7 +308,8 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
             } else {
                 ghuAliveKey.remove(ghu);
                 if (response.getStatusCode() == HttpStatus.TOO_MANY_REQUESTS) {
-                    setCoolkey(ghu, response);
+                    String retryAfter = response.getHeaders().getFirst(HEADER_RETRY);
+                    setCoolkey(ghu, retryAfter);
                 } else {
                     redissonClient.getSet(GHU_NO_ALIVE_KEY, StringCodec.INSTANCE).addAsync(ghu);
                 }
@@ -335,8 +346,7 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
         return null;
     }
 
-    private void setCoolkey(String ghu, ResponseEntity response) {
-        String retryAfter = response.getHeaders().getFirst(HEADER_RETRY);
+    private void setCoolkey(String ghu, String  retryAfter) {
         // 默认 600秒
         long time = 120;
         if (StringUtil.isNotBlank(retryAfter)) {

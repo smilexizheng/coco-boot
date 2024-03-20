@@ -8,8 +8,12 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.client.ClientHttpRequestFactory;
 import org.springframework.http.client.OkHttp3ClientHttpRequestFactory;
+import org.springframework.http.converter.HttpMessageConverter;
+import org.springframework.http.converter.StringHttpMessageConverter;
 import org.springframework.web.client.RestTemplate;
 
+import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -44,6 +48,7 @@ public class RestTemplateConfig {
     public RestTemplate httpRestTemplate() {
         ClientHttpRequestFactory factory = httpRequestFactory();
         RestTemplate restTemplate = new RestTemplate(factory);
+        setCharset(restTemplate);
         // 可以添加消息转换
         //restTemplate.setMessageConverters(...);
         // 可以增加拦截器
@@ -52,6 +57,17 @@ public class RestTemplateConfig {
         restTemplate.setErrorHandler(new RestErrorHandler());
         log.info("RestTemplate OkHttpClient starting...");
         return restTemplate;
+    }
+
+
+    //设置字符集为UTF-8, 尝试解决乱码问题
+    private void setCharset(RestTemplate restTemplate) {
+        List<HttpMessageConverter<?>> messageConverters = restTemplate.getMessageConverters();
+        for(HttpMessageConverter messageConverter:messageConverters){
+            if(messageConverter instanceof StringHttpMessageConverter){
+                ((StringHttpMessageConverter) messageConverter).setDefaultCharset(StandardCharsets.UTF_8);
+            }
+        }
     }
 
     public ClientHttpRequestFactory httpRequestFactory() {
