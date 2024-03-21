@@ -15,11 +15,24 @@
     <!-- 日志输出格式 -->
     <property name="log.pattern"
               value="[${applicationName}, ${ip}:${port}, %remoteIp] %-5p %d{yyyy-MM-dd HH:mm:ss.SSS} [%t] %c.%M:%L - %m%n"/>
+    <!-- 彩色日志格式 -->
+    <property name="CONSOLE_LOG_PATTERN"
+              value="[${applicationName} ${ip}:${port} %remoteIp] ${CONSOLE_LOG_PATTERN:-%clr(%d{yyyy-MM-dd HH:mm:ss.SSS}){faint} %clr(${LOG_LEVEL_PATTERN:-%5p}) %clr(${PID:- }){magenta} %clr(---){faint} %clr([%15.15t]){faint} %clr(%-40.40logger{39}){cyan} %clr(:){faint} %m%n${LOG_EXCEPTION_CONVERSION_WORD:-%wEx}}"/>
+
+    <!-- 彩色日志依赖的渲染类 -->
+    <conversionRule conversionWord="clr" converterClass="org.springframework.boot.logging.logback.ColorConverter"/>
+    <conversionRule conversionWord="wex"
+                    converterClass="org.springframework.boot.logging.logback.WhitespaceThrowableProxyConverter"/>
+    <conversionRule conversionWord="wEx"
+                    converterClass="org.springframework.boot.logging.logback.ExtendedWhitespaceThrowableProxyConverter"/>
+<!--    [boot, 192.168.192.2:8181, 127.0.0.1] INFO  2024-03-21 14:40:56.640 [main] com.coco.boot.CocoBootApplication.logStarted:57 - Started CocoBootApplication in 5.637 seconds (process running for 7.146)-->
+
+<!--    2024-03-21 14:41:36.604  INFO 28544 -&#45;&#45; [           main] com.coco.boot.CocoBootApplication        : Started CocoBootApplication in 5.735 seconds (process running for 7.183)-->
 
     <!-- 控制台输出 -->
     <appender name="console" class="ch.qos.logback.core.ConsoleAppender">
         <encoder>
-            <pattern>${log.pattern}</pattern>
+            <pattern>${CONSOLE_LOG_PATTERN}</pattern>
         </encoder>
     </appender>
     <!-- 系统日志输出 -->
