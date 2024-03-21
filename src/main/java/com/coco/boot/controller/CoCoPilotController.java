@@ -1,5 +1,6 @@
 package com.coco.boot.controller;
 
+import com.alibaba.fastjson2.JSONObject;
 import com.coco.boot.common.R;
 import com.coco.boot.entity.ServiceStatus;
 import com.coco.boot.pojo.Conversation;
@@ -56,7 +57,7 @@ public class CoCoPilotController {
 
 
     @RequestMapping(value = "/v1/**", method = {RequestMethod.GET, RequestMethod.POST})
-    public ResponseEntity<String> chat(@RequestBody Conversation requestBody,
+    public ResponseEntity<JSONObject> chat(@RequestBody Conversation requestBody,
                                        @RequestHeader("Authorization") String auth,
                                        HttpServletRequest request) {
         try {
@@ -64,7 +65,7 @@ public class CoCoPilotController {
             return coCoPilotService.chat(requestBody, auth, request.getRequestURI());
         } catch (Exception e) {
             e.printStackTrace();
-            return new ResponseEntity<>("Internal Server Error", HttpStatus.INTERNAL_SERVER_ERROR);
+            return new ResponseEntity<>(null, HttpStatus.INTERNAL_SERVER_ERROR);
         }
     }
 
