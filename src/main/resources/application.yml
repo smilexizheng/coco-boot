@@ -88,7 +88,7 @@ redisson:
   database: 1
   password:
   single:
-    address: redis://127.0.0.1:16379
+    address: redis://127.0.0.1:6379
   cluster:
     master-connection-pool-size: 64
     nodes: redis://127.0.0.1:7004,redis://127.0.0.1:7001,redis://127.0.0.1:7000
