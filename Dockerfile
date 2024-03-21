@@ -4,7 +4,8 @@ RUN mkdir -p /app
 # 将工作目录设置为/app
 WORKDIR /app
 # 复制pom.xml和源码到/app
-COPY . /app
+COPY ./src /app/src
+COPY ./pom.xml /app
 # 使用Maven打包应用
 RUN mvn clean package -Dmaven.test.skip=true
 
@@ -18,8 +19,7 @@ RUN mkdir /app/conf -p
 WORKDIR /app
 # 从构建阶段复制构建好的jar文件到/app
 COPY --from=build /app/target/*.jar /app/app.jar
-COPY --from=build /app/src/main/resources/redisson-config.yml /app/conf/redisson-config.yml
-COPY --from=build /app/src/main/resources/application.yml /app/conf/application.yml
+COPY --from=build /app/src/main/resources/application-docker.yml /app/conf/application.yml
 # 定义环境变量，用于配置文件
 # coco配置
 ENV COCO_EXPIRATION_TTL=5 \
@@ -36,7 +36,7 @@ ENV COCO_EXPIRATION_TTL=5 \
     COCO_USER_RATE_TIME=1 \
     COCO_USER_FREQUENCY_DEGREE=10 \
     COCO_USER_TOKEN_EXPIRE=1 \
-    COCO_USER_LEVEL=2 \
+    COCO_USER_LEVEL=2
 # 风控参数
 ENV RISK_CONTR_GET_TOKEN_NUM=10 \
     RISK_CONTR_TOKEN_MAX_REQ=500 \
@@ -45,7 +45,7 @@ ENV RISK_CONTR_GET_TOKEN_NUM=10 \
     RISK_CONTR_TOKEN_INVALID_NUM=10 \
     RISK_CONTR_REJECT_TIME_NUM=30 \
     RISK_CONTR_REJECT_TIME=2 \
-    RISK_CONTR_BAN_NUM=5 \
+    RISK_CONTR_BAN_NUM=5
 # redisson配置
 ENV REDISSON_MODE=single \
     REDISSON_DATABASE=0 \
@@ -72,4 +72,4 @@ ENV REDISSON_MODE=single \
 EXPOSE 8181
 
 # 运行Java应用
-CMD ["java", "-Dspring.config=conf/application.yml", "-jar", "/app/app.jar"]
+CMD ["java", "-Dspring.config=/app/conf/application.yml", "-jar", "/app/app.jar"]

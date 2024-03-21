@@ -19,6 +19,7 @@
 		<fastjson.version>2.0.46</fastjson.version>
         <redisson.version>3.26.0</redisson.version>
         <hutool.version>5.8.26</hutool.version>
+        <aspectjrt.version>1.9.9.1</aspectjrt.version>
         <java.version>17</java.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
@@ -83,6 +84,11 @@
             <artifactId>hutool-extra</artifactId>
             <version>${hutool.version}</version>
         </dependency>
+        <dependency>
+            <groupId>org.aspectj</groupId>
+            <artifactId>aspectjrt</artifactId>
+            <version>${aspectjrt.version}</version>
+        </dependency>
     </dependencies>
 
     <build>
@@ -99,6 +105,7 @@
                     </execution>
                 </executions>
                 <configuration>
+                    <mainClass>com.coco.boot.CocoBootApplication</mainClass>
                     <excludes>
                         <exclude>
                             <groupId>org.projectlombok</groupId>
