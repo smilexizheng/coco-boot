@@ -27,19 +27,14 @@ import static com.coco.boot.constant.SysConstant.*;
 public class CoCoTask {
     @Resource
     private RedissonClient redissonClient;
-
-    @Resource
-    private RestTemplate rest;
-
     @Resource
     private CoCoConfig coCoConfig;
 
     /**
-     * 重置账号
+     * 重置账号 数据
      * 凌晨2点执行
      */
     @Scheduled(cron = "0 0 2 * * ?")
-//    @Scheduled(cron = "0/10 * * * * ?")启动后，test()添加数据， 此定时任务 10秒后执行
     private void resetSomeThins() {
         RKeys keys = redissonClient.getKeys();
         //token 次数
@@ -52,50 +47,64 @@ public class CoCoTask {
 
 
     /**
-     * 检查一下key吧
-     * 凌晨1点执行
+     * 检查一下 gg 的key
+     * 每5分钟
      */
-    @Scheduled(cron = "0 0 1 * * ?")
-//    @Scheduled(cron = "0/10 * * * * ?") //启动后，test()添加数据， 此定时任务 10秒后执行
-    private void checkSomeKey() {
+    @Scheduled(cron = "0 0/5  * * * ?")
+    private void checkNoAliveKey() {
         RSet<String> noAlive = redissonClient.getSet(GHU_NO_ALIVE_KEY, StringCodec.INSTANCE);
         RSet<String> alive = redissonClient.getSet(GHU_ALIVE_KEY, StringCodec.INSTANCE);
         RAtomicLong noAliveNum = redissonClient.getAtomicLong(COUNT_NO_ALIVE_KEY);
 
         for (String key : noAlive.readAll()) {
             if (alive.contains(key)) {
+                noAlive.remove(key);
                 continue;
             }
             RAtomicLong checkNum = redissonClient.getAtomicLong(CHECK_NO_ALIVE_KEY + DigestUtils.md5DigestAsHex(key.getBytes()));
             long num = checkNum.incrementAndGet();
-
-            try {
-                CompletableFuture<HttpResponse<String>> future = AliveTest(key, coCoConfig);
-                future.thenAccept(response -> {
-                    int statusCode = response.statusCode();
-                    if (statusCode == HttpStatus.OK.value() || statusCode == HttpStatus.TOO_MANY_REQUESTS.value()) {
-                        log.info(" get one alive  key:{}", key);
-                        alive.add(key);
+            CompletableFuture<HttpResponse<String>> future = AliveTest(key, coCoConfig);
+            future.thenAccept(response -> {
+                int statusCode = response.statusCode();
+                if (statusCode == HttpStatus.OK.value() || statusCode == HttpStatus.TOO_MANY_REQUESTS.value()) {
+                    log.info(" get one alive  key:{}", key);
+                    alive.add(key);
+                    checkNum.deleteAsync();
+                    noAlive.removeAsync(key);
+                } else {
+                    log.info("no alive key:{}", key);
+                    if (num > 10) {
                         checkNum.deleteAsync();
                         noAlive.removeAsync(key);
-                    } else {
-                        log.info("no alive key:{}", key);
-                        if (num > 10) {
-                            checkNum.deleteAsync();
-                            noAlive.removeAsync(key);
-                            noAliveNum.incrementAndGet();
-                        }
+                        noAliveNum.incrementAndGet();
                     }
-                });
-
-
-            } catch (Exception e) {
-                log.error("check 校验异常", e);
-            }
-
-
+                }
+            });
         }
+    }
 
+    /**
+     * 检查活的key
+     * 每5分钟
+     */
+    @Scheduled(cron = "0 0/5  * * * ?")
+    private void checkAliveKey() {
+        RSet<String> noAlive = redissonClient.getSet(GHU_NO_ALIVE_KEY, StringCodec.INSTANCE);
+        RSet<String> alive = redissonClient.getSet(GHU_ALIVE_KEY, StringCodec.INSTANCE);
+        for (String key : alive.readAll()) {
+            if (noAlive.contains(key)) {
+                alive.remove(key);
+                continue;
+            }
+            CompletableFuture<HttpResponse<String>> future = AliveTest(key, coCoConfig);
+            future.thenAccept(response -> {
+                int statusCode = response.statusCode();
+                if (statusCode != HttpStatus.OK.value() || statusCode != HttpStatus.TOO_MANY_REQUESTS.value()) {
+                    alive.remove(key);
+                    noAlive.add(key);
+                }
+            });
+        }
     }
 
     public static CompletableFuture<HttpResponse<String>> AliveTest(String key, CoCoConfig coCoConfig) {
