@@ -96,6 +96,7 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
                     aliveSet.add(key);
                 } else if (statusCode == HttpStatus.TOO_MANY_REQUESTS.value()) {
                     String retryAfter = response.headers().firstValue(HEADER_RETRY).orElse("100");
+                    map.put(key, "限流");
                     setCoolkey(key, retryAfter);
                     log.info("upload 存活校验限流: {}, 返回: {}", key, response.body());
                 } else {
@@ -205,7 +206,7 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
 
 
     @Override
-    public ResponseEntity<JSONObject> chat(Conversation requestBody, String auth, String path) {
+    public ResponseEntity<String> chat(Conversation requestBody, String auth, String path) {
         JSONObject userInfo = ChatInterceptor.tl.get();
         auth = auth.substring("Bearer ".length());
         String userId = userInfo.getString("id");
@@ -219,7 +220,7 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
         String tokenKey = DigestUtils.md5DigestAsHex((auth + userId).getBytes());
         if (rateLimiter.tryAcquire()) {
             // 调用 handleProxy 方法并获取响应
-            ResponseEntity<JSONObject> response = handleProxy(requestBody, path);
+            ResponseEntity<String> response = handleProxy(requestBody, path);
             if (response.getStatusCode().is2xxSuccessful()) {
                 //成功访问
                 long tokenSuccess = redissonClient.getAtomicLong(RC_TOKEN_SUCCESS_REQ + tokenKey).incrementAndGet();
@@ -251,7 +252,7 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
 
 
             log.warn("用户ID:{}，trustLevel:{}，token:{}被限流使用", userId, trustLevel, auth);
-            return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body(CODE_429);
+            return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body(CODE_429.toString());
         }
 
     }
@@ -273,24 +274,24 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
     /**
      * 核心代理 方法
      */
-    private ResponseEntity<JSONObject> handleProxy(Object requestBody, String path) {
+    private ResponseEntity<String> handleProxy(Object requestBody, String path) {
         // 实现 handleProxy 方法逻辑
         // 进来后再判断一次，拦截器判断通过，但万一其他线程正好用完了
         RSet<String> ghuAliveKey = redissonClient.getSet(GHU_ALIVE_KEY, StringCodec.INSTANCE);
 
         if (!ghuAliveKey.isExists()) {
-            return ResponseEntity.ok(NO_KEYS);
+            return ResponseEntity.ok(NO_KEYS.toString());
         }
         return getBaseProxyResponse(requestBody, path, ghuAliveKey);
     }
 
     @NotNull
-    private ResponseEntity<JSONObject> getBaseProxyResponse(Object requestBody, String path, RSet<String> ghuAliveKey) {
+    private ResponseEntity<String> getBaseProxyResponse(Object requestBody, String path, RSet<String> ghuAliveKey) {
         int i = 0;
         while (i < 2) {
             String ghu = getGhu(ghuAliveKey);
             if (StringUtil.isBlank(ghu)) {
-                return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body(CODE_429);
+                return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body(CODE_429.toString());
             }
             log.info("{}可用令牌数量，当前选择{}", ghuAliveKey.size(), ghu);
             HttpHeaders headers = new HttpHeaders();
@@ -298,7 +299,7 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
             headers.set("Authorization", "Bearer " + ghu);
             StopWatch sw = new StopWatch();
             sw.start("进入代理");
-            ResponseEntity<JSONObject> response = rest.postForEntity(coCoConfig.getBaseProxy() + path, new HttpEntity<>(requestBody, headers), JSONObject.class);
+            ResponseEntity<String> response = rest.postForEntity(coCoConfig.getBaseProxy() + path, new HttpEntity<>(requestBody, headers), String.class);
             sw.stop();
             log.info(sw.prettyPrint(TimeUnit.SECONDS));
             if (response.getStatusCode().is2xxSuccessful()) {
@@ -318,7 +319,7 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
             }
         }
 
-        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body(CODE_429);
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body(CODE_429.toString());
     }
 
 

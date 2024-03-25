@@ -40,16 +40,16 @@ coco:
   # 请求L站 state 过期时间 分钟
   expirationTtl: 5
   #重定向地址
-  redirectUri: http://localhost:8181/oauth2/callback
-  clientId: hi3geJYfTotoiR5S62u3rh4W5tSeC5UG
-  clientSecret: VMPBVoAfOB5ojkGXRDEtzvDhRLENHpaN
+  redirectUri:
+  clientId:
+  clientSecret:
   #  L站
-  authorizationEndpoint: https://connect.linux.do/oauth2/authorize
-  tokenEndpoint: https://connect.linux.do/oauth2/token
-  userEndpoint: https://connect.linux.do/api/user
+  authorizationEndpoint:
+  tokenEndpoint:
+  userEndpoint:
   #代理节点
-  baseApi: https://api.cocopilot.org/copilot_internal/v2/token
-  baseProxy: https://proxy.cocopilot.org
+  baseApi:
+  baseProxy:
   #ghu 频率秒  1秒8次
   frequencyTime: 1
   #ghu频率数

@@ -33,7 +33,7 @@ public interface CoCoPilotService {
     /**
      * chat 接口
      */
-    ResponseEntity<JSONObject> chat(@RequestBody Conversation requestBody, @RequestHeader("Authorization") String auth, String path);
+    ResponseEntity<String> chat(@RequestBody Conversation requestBody, @RequestHeader("Authorization") String auth, String path);
 
     /**
      * 服务状态

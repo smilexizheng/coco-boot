@@ -7,6 +7,7 @@ import com.coco.boot.pojo.Conversation;
 import com.coco.boot.service.CoCoPilotService;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.AllArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -18,6 +19,7 @@ import org.springframework.web.servlet.ModelAndView;
 @AllArgsConstructor
 @RestController
 @RequestMapping("/")
+@Slf4j
 public class CoCoPilotController {
 
 
@@ -57,14 +59,14 @@ public class CoCoPilotController {
 
 
     @RequestMapping(value = "/v1/**", method = {RequestMethod.GET, RequestMethod.POST})
-    public ResponseEntity<JSONObject> chat(@RequestBody Conversation requestBody,
+    public ResponseEntity<String> chat(@RequestBody Conversation requestBody,
                                        @RequestHeader("Authorization") String auth,
                                        HttpServletRequest request) {
         try {
-            System.out.println("request = " + request.getRequestURI());
+            log.info("request = {}", request.getRequestURI());
             return coCoPilotService.chat(requestBody, auth, request.getRequestURI());
         } catch (Exception e) {
-            e.printStackTrace();
+            log.error("chat error", e);
             return new ResponseEntity<>(null, HttpStatus.INTERNAL_SERVER_ERROR);
         }
     }
