@@ -1,7 +1,6 @@
 package com.coco.boot.service;
 
 
-import com.alibaba.fastjson2.JSONObject;
 import com.coco.boot.common.R;
 import com.coco.boot.entity.ServiceStatus;
 import com.coco.boot.pojo.Conversation;
@@ -33,7 +32,7 @@ public interface CoCoPilotService {
     /**
      * chat 接口
      */
-    ResponseEntity<String> chat(@RequestBody Conversation requestBody, @RequestHeader("Authorization") String auth, String path);
+    ResponseEntity chat(@RequestBody Conversation requestBody, @RequestHeader("Authorization") String auth, String path);
 
     /**
      * 服务状态
