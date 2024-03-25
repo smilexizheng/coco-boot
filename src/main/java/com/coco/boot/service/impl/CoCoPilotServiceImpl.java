@@ -205,11 +205,15 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
 
 
     @Override
-    public ResponseEntity<JSONObject> chat(Conversation requestBody, String auth, String path) {
+    public ResponseEntity chat(Conversation requestBody, String auth, String path) {
         JSONObject userInfo = ChatInterceptor.tl.get();
         auth = auth.substring("Bearer ".length());
         String userId = userInfo.getString("id");
         int trustLevel = userInfo.getIntValue("trust_level");
+        RSet<String> ghuAliveKey = redissonClient.getSet(GHU_ALIVE_KEY, StringCodec.INSTANCE);
+        if (!ghuAliveKey.isExists()) {
+            return ResponseEntity.ok(NO_KEYS);
+        }
         // 根据用户信任级别限流
         RRateLimiter rateLimiter = redissonClient.getRateLimiter(USER_RATE_LIMITER + userId);
         if (!rateLimiter.isExists()) {
@@ -219,7 +223,7 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
         String tokenKey = DigestUtils.md5DigestAsHex((auth + userId).getBytes());
         if (rateLimiter.tryAcquire()) {
             // 调用 handleProxy 方法并获取响应
-            ResponseEntity<JSONObject> response = handleProxy(requestBody, path);
+            ResponseEntity response = getBaseProxyResponse(requestBody, path, ghuAliveKey);
             if (response.getStatusCode().is2xxSuccessful()) {
                 //成功访问
                 long tokenSuccess = redissonClient.getAtomicLong(RC_TOKEN_SUCCESS_REQ + tokenKey).incrementAndGet();
@@ -230,9 +234,14 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
                 if (userSuccess > ((long) rcConfig.getUserMaxReq() * trustLevel)) {
                     redissonClient.getBucket(RC_TEMPORARY_BAN + userId).set(true, Duration.ofHours(rcConfig.getUserMaxTime()));
                 }
-
+            }
+            MediaType contentType = response.getHeaders().getContentType();
+            if (contentType.equals(MediaType.APPLICATION_JSON)) {
+                // 处理 application/json 类型数据
+                return new ResponseEntity<>(JSON.parseObject(response.getBody().toString()),response.getStatusCode());
             }
             return response;
+
         } else {
             long l = redissonClient.getAtomicLong(RC_USER_TOKEN_LIMIT_NUM + tokenKey).incrementAndGet();
             RAtomicLong userLimit = redissonClient.getAtomicLong(RC_USER_LIMIT_NUM + userId);
@@ -270,22 +279,10 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
     }
 
 
-    /**
-     * 核心代理 方法
-     */
-    private ResponseEntity<JSONObject> handleProxy(Object requestBody, String path) {
-        // 实现 handleProxy 方法逻辑
-        // 进来后再判断一次，拦截器判断通过，但万一其他线程正好用完了
-        RSet<String> ghuAliveKey = redissonClient.getSet(GHU_ALIVE_KEY, StringCodec.INSTANCE);
 
-        if (!ghuAliveKey.isExists()) {
-            return ResponseEntity.ok(NO_KEYS);
-        }
-        return getBaseProxyResponse(requestBody, path, ghuAliveKey);
-    }
 
     @NotNull
-    private ResponseEntity<JSONObject> getBaseProxyResponse(Object requestBody, String path, RSet<String> ghuAliveKey) {
+    private ResponseEntity getBaseProxyResponse(Object requestBody, String path, RSet<String> ghuAliveKey) {
         int i = 0;
         while (i < 2) {
             String ghu = getGhu(ghuAliveKey);
@@ -295,10 +292,11 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
             log.info("{}可用令牌数量，当前选择{}", ghuAliveKey.size(), ghu);
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
+            headers.setAccept(Arrays.asList(MediaType.APPLICATION_JSON,MediaType.TEXT_EVENT_STREAM));
             headers.set("Authorization", "Bearer " + ghu);
             StopWatch sw = new StopWatch();
             sw.start("进入代理");
-            ResponseEntity<JSONObject> response = rest.postForEntity(coCoConfig.getBaseProxy() + path, new HttpEntity<>(requestBody, headers), JSONObject.class);
+            ResponseEntity<String> response = rest.postForEntity(coCoConfig.getBaseProxy() + path, new HttpEntity<>(requestBody, headers), String.class);
             sw.stop();
             log.info(sw.prettyPrint(TimeUnit.SECONDS));
             if (response.getStatusCode().is2xxSuccessful()) {

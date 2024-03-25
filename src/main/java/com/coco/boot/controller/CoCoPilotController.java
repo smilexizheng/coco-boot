@@ -57,9 +57,9 @@ public class CoCoPilotController {
 
 
     @RequestMapping(value = "/v1/**", method = {RequestMethod.GET, RequestMethod.POST})
-    public ResponseEntity<JSONObject> chat(@RequestBody Conversation requestBody,
-                                       @RequestHeader("Authorization") String auth,
-                                       HttpServletRequest request) {
+    public ResponseEntity chat(@RequestBody Conversation requestBody,
+                               @RequestHeader("Authorization") String auth,
+                               HttpServletRequest request) {
         try {
             System.out.println("request = " + request.getRequestURI());
             return coCoPilotService.chat(requestBody, auth, request.getRequestURI());
