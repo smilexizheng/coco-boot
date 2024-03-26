@@ -30,6 +30,6 @@ public class Conversation {
     /**
      * 是否流式
      */
-    private Boolean stream;
+    private Boolean stream = true;
 
 }

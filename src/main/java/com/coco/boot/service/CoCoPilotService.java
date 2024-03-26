@@ -1,10 +1,10 @@
 package com.coco.boot.service;
 
 
-import com.alibaba.fastjson2.JSONObject;
 import com.coco.boot.common.R;
 import com.coco.boot.entity.ServiceStatus;
 import com.coco.boot.pojo.Conversation;
+import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
@@ -33,7 +33,7 @@ public interface CoCoPilotService {
     /**
      * chat 接口
      */
-    ResponseEntity chat(@RequestBody Conversation requestBody, @RequestHeader("Authorization") String auth, String path);
+    ResponseEntity<?> chat(@RequestBody Conversation requestBody, @RequestHeader("Authorization") String auth, String path, HttpServletResponse response);
 
     /**
      * 服务状态
