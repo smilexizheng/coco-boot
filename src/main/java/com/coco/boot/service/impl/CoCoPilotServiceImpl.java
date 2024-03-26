@@ -14,6 +14,8 @@ import com.coco.boot.interceptor.ChatInterceptor;
 import com.coco.boot.pojo.Conversation;
 import com.coco.boot.service.CoCoPilotService;
 import com.coco.boot.task.CoCoTask;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.servlet.http.HttpServletResponse;
 import jodd.util.StringUtil;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -22,17 +24,15 @@ import org.redisson.api.*;
 import org.redisson.api.map.event.EntryExpiredListener;
 import org.redisson.client.codec.StringCodec;
 import org.springframework.http.*;
+import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.stereotype.Service;
-import org.springframework.util.DigestUtils;
-import org.springframework.util.LinkedMultiValueMap;
-import org.springframework.util.MultiValueMap;
-import org.springframework.util.StringUtils;
+import org.springframework.util.*;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.servlet.ModelAndView;
 import org.springframework.web.servlet.view.RedirectView;
 
-
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
@@ -45,6 +45,7 @@ import static org.springframework.http.HttpStatus.FORBIDDEN;
 @AllArgsConstructor
 @Service
 @Slf4j
+@EnableAsync
 public class CoCoPilotServiceImpl implements CoCoPilotService {
 
 
@@ -54,6 +55,7 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
 
     private final CoCoConfig coCoConfig;
     private final RiskContrConfig rcConfig;
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     private static final JSONObject NO_KEYS = JSON.parseObject("{\"message\": \"No keys\"}");
     private static final JSONObject CODE_429 = JSON.parseObject("{\"message\": \"Rate limit\"}");
@@ -206,7 +208,7 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
 
 
     @Override
-    public ResponseEntity chat(Conversation requestBody, String auth, String path) {
+    public ResponseEntity<?> chat(Conversation requestBody, String auth, String path, HttpServletResponse response) {
         JSONObject userInfo = ChatInterceptor.tl.get();
         auth = auth.substring("Bearer ".length());
         String userId = userInfo.getString("id");
@@ -224,8 +226,8 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
         String tokenKey = DigestUtils.md5DigestAsHex((auth + userId).getBytes());
         if (rateLimiter.tryAcquire()) {
             // 调用 handleProxy 方法并获取响应
-            ResponseEntity response = getBaseProxyResponse(requestBody, path, ghuAliveKey);
-            if (response.getStatusCode().is2xxSuccessful()) {
+            ResponseEntity<?> result = getBaseProxyResponse(requestBody, path, ghuAliveKey, response);
+            if (result.getStatusCode().is2xxSuccessful()) {
                 //成功访问
                 long tokenSuccess = redissonClient.getAtomicLong(RC_TOKEN_SUCCESS_REQ + tokenKey).incrementAndGet();
                 if (tokenSuccess > ((long) rcConfig.getTokenMaxReq() * trustLevel)) {
@@ -236,12 +238,7 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
                     redissonClient.getBucket(RC_TEMPORARY_BAN + userId).set(true, Duration.ofHours(rcConfig.getUserMaxTime()));
                 }
             }
-            MediaType contentType = response.getHeaders().getContentType();
-            if (contentType.equals(MediaType.APPLICATION_JSON)) {
-                // 处理 application/json 类型数据
-                return new ResponseEntity<>(JSON.parseObject(response.getBody().toString()),response.getStatusCode());
-            }
-            return response;
+            return result;
         } else {
             long l = redissonClient.getAtomicLong(RC_USER_TOKEN_LIMIT_NUM + tokenKey).incrementAndGet();
             RAtomicLong userLimit = redissonClient.getAtomicLong(RC_USER_LIMIT_NUM + userId);
@@ -279,10 +276,8 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
     }
 
 
-
-
     @NotNull
-    private ResponseEntity getBaseProxyResponse(Object requestBody, String path, RSet<String> ghuAliveKey) {
+    private ResponseEntity<?> getBaseProxyResponse(Conversation requestBody, String path, RSet<String> ghuAliveKey, HttpServletResponse response) {
         int i = 0;
         while (i < 2) {
             String ghu = getGhu(ghuAliveKey);
@@ -292,22 +287,67 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
             log.info("{}可用令牌数量，当前选择{}", ghuAliveKey.size(), ghu);
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
-            headers.setAccept(Arrays.asList(MediaType.APPLICATION_JSON,MediaType.TEXT_EVENT_STREAM));
+            headers.setAccept(Arrays.asList(MediaType.APPLICATION_JSON, MediaType.TEXT_EVENT_STREAM));
             headers.set("Authorization", "Bearer " + ghu);
             StopWatch sw = new StopWatch();
             sw.start("进入代理");
-            ResponseEntity<String> response = rest.postForEntity(coCoConfig.getBaseProxy() + path, new HttpEntity<>(requestBody, headers), String.class);
+            ResponseEntity<String> result = null;
+
+            if (!requestBody.getStream()) {
+                // 非流式处理使用postForEntity方法
+                result = rest.postForEntity(
+                        coCoConfig.getBaseProxy() + path,
+                        new HttpEntity<>(requestBody, headers),
+                        String.class);
+            } else {
+                // 流式处理使用execute方法
+                try {
+                    rest.execute(
+                            coCoConfig.getBaseProxy() + path,
+                            HttpMethod.POST,
+                            requestCallback -> {
+                                HttpHeaders requestHeaders = requestCallback.getHeaders();
+                                requestHeaders.setContentType(MediaType.APPLICATION_JSON);
+                                requestHeaders.setAccept(Arrays.asList(MediaType.APPLICATION_JSON, MediaType.TEXT_EVENT_STREAM));
+                                requestHeaders.set("Authorization", "Bearer " + ghu);
+                                String jsonBody = convertObjectToJson(requestBody);
+                                requestCallback.getBody().write(jsonBody.getBytes(StandardCharsets.UTF_8));
+                            },
+                            responseExtractor -> {
+                                responseExtractor.getHeaders().forEach((key, value) -> {
+                                    response.setHeader(key, String.join(",", value));
+                                });
+                                response.setStatus(responseExtractor.getRawStatusCode());
+                                response.setHeader("Content-Type", "application/stream+json");
+                                StreamUtils.copy(responseExtractor.getBody(), response.getOutputStream());
+                                //ghu使用成功次数
+                                RAtomicLong atomicLong = redissonClient.getAtomicLong(USING_GHU + ghu);
+                                atomicLong.incrementAndGet();
+                                return null;
+                            }
+                    );
+                    return ResponseEntity.ok().build(); // 表示流式处理成功
+                } catch (Exception e) {
+                    log.error("流式处理异常", e);
+                    // 根据实际情况处理异常，例如设置重试或返回错误响应
+                }
+            }
             sw.stop();
             log.info(sw.prettyPrint(TimeUnit.SECONDS));
-            if (response.getStatusCode().is2xxSuccessful()) {
+            if (result == null) {
+                i++;
+                continue;
+            }
+            if (result.getStatusCode().is2xxSuccessful()) {
                 //ghu使用成功次数
                 RAtomicLong atomicLong = redissonClient.getAtomicLong(USING_GHU + ghu);
                 atomicLong.incrementAndGet();
-                return response;
+                // 客户端请求全部数据
+                return result;
             } else {
                 ghuAliveKey.remove(ghu);
-                if (response.getStatusCode() == HttpStatus.TOO_MANY_REQUESTS) {
-                    String retryAfter = response.getHeaders().getFirst(HEADER_RETRY);
+                if (result.getStatusCode() == HttpStatus.TOO_MANY_REQUESTS) {
+                    String retryAfter = result.getHeaders().getFirst(HEADER_RETRY);
                     setCoolkey(ghu, retryAfter);
                 } else {
                     redissonClient.getSet(GHU_NO_ALIVE_KEY, StringCodec.INSTANCE).addAsync(ghu);
@@ -351,7 +391,7 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
         if (StringUtil.isNotBlank(retryAfter)) {
             try {
                 time = Long.parseLong(retryAfter);
-            } catch (NumberFormatException e) {
+            } catch (NumberFormatException ignored) {
             }
         }
 
@@ -368,5 +408,17 @@ public class CoCoPilotServiceImpl implements CoCoPilotService {
             collingMap.put(ghu, 1, time + 5, TimeUnit.SECONDS);
         }
     }
+
+    public String convertObjectToJson(Object obj) {
+        ObjectMapper objectMapper = new ObjectMapper();
+        try {
+            return objectMapper.writeValueAsString(obj);
+        } catch (Exception e) {
+            // 处理异常：实际应用中可能需要更复杂的异常处理逻辑
+            log.error("Error converting object to JSON", e);
+            return null;
+        }
+    }
+
 
 }

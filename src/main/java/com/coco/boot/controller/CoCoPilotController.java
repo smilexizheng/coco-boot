@@ -1,11 +1,11 @@
 package com.coco.boot.controller;
 
-import com.alibaba.fastjson2.JSONObject;
 import com.coco.boot.common.R;
 import com.coco.boot.entity.ServiceStatus;
 import com.coco.boot.pojo.Conversation;
 import com.coco.boot.service.CoCoPilotService;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -59,12 +59,13 @@ public class CoCoPilotController {
 
 
     @RequestMapping(value = "/v1/**", method = {RequestMethod.GET, RequestMethod.POST})
-    public ResponseEntity chat(@RequestBody Conversation requestBody,
+    public ResponseEntity<?> chat(@RequestBody Conversation requestBody,
                                @RequestHeader("Authorization") String auth,
-                               HttpServletRequest request) {
+                               HttpServletRequest request,
+                               HttpServletResponse response) {
         try {
             log.info("request = {}", request.getRequestURI());
-            return coCoPilotService.chat(requestBody, auth, request.getRequestURI());
+            return coCoPilotService.chat(requestBody, auth, request.getRequestURI(), response);
         } catch (Exception e) {
             log.error("chat error", e);
             return new ResponseEntity<>(null, HttpStatus.INTERNAL_SERVER_ERROR);
